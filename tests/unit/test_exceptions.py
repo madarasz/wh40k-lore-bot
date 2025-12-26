@@ -1,6 +1,5 @@
 """Tests for custom exception hierarchy."""
 
-
 from src.utils.exceptions import (
     ConfigurationError,
     DatabaseError,
