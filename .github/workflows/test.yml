@@ -1,0 +1,66 @@
+name: Tests
+
+on:
+  pull_request:
+    branches: ["*"]
+  push:
+    branches: ["main", "master"]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        check:
+          - name: "Lint"
+            run: "poetry run ruff check ."
+          - name: "Type Check"
+            run: "poetry run mypy src"
+          - name: "Tests"
+            run: "poetry run pytest --cov=src --cov-report=xml --cov-report=term-missing"
+
+    name: ${{ matrix.check.name }}
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python 3.11
+      id: setup-python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+
+    - name: Install Poetry
+      uses: snok/install-poetry@v1
+      with:
+        version: 1.7.1
+        virtualenvs-create: true
+        virtualenvs-in-project: true
+
+    - name: Load cached venv
+      id: cached-poetry-dependencies
+      uses: actions/cache@v4
+      with:
+        path: .venv
+        key: venv-${{ runner.os }}-${{ steps.setup-python.outputs.python-version }}-${{ hashFiles('**/poetry.lock') }}
+
+    - name: Install dependencies
+      if: steps.cached-poetry-dependencies.outputs.cache-hit != 'true'
+      run: poetry install --no-interaction --no-root
+
+    - name: Install project
+      run: poetry install --no-interaction
+
+    - name: Run ${{ matrix.check.name }}
+      run: ${{ matrix.check.run }}
+
+    - name: Upload coverage to Codecov
+      if: matrix.check.name == 'Tests'
+      uses: codecov/codecov-action@v5
+      with:
+        file: ./coverage.xml
+        fail_ci_if_error: false
+        token: ${{ secrets.CODECOV_TOKEN }}
+        slug: madarasz/wh40k-lore-bot

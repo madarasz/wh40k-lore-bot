@@ -1,0 +1,95 @@
+[tool.poetry]
+name = "wh40k-lore-bot"
+version = "0.1.0"
+description = "A Discord bot that provides Warhammer 40K lore using RAG (Retrieval-Augmented Generation)"
+authors = ["Istvan Madarasz <mr.madarasz.istvan@gmail.com>"]
+readme = "README.md"
+packages = [{include = "src"}]
+
+[tool.poetry.dependencies]
+python = ">=3.11"
+lxml = "^6.0"
+defusedxml = "^0.7"
+mwparserfromhell = "^0.6"
+sqlalchemy = "^2.0"
+alembic = "^1.17"
+structlog = "^25.5"
+python-dotenv = "^1.0"
+discord-py = "^2.6"
+openai = "^2.14"
+anthropic = "^0.75"
+google-genai = "^1.56"
+chromadb = "^1.4"
+rank-bm25 = "^0.2.2"
+tiktoken = "^0.5"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0"
+ruff = "^0.1"
+mypy = "^1.8"
+pytest-cov = "^4.1"
+pytest-asyncio = "^0.23"
+pre-commit = "^3.6"
+pytest-mock = "^3.12"
+bandit = "^1.7"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP", "B", "C4", "PL"]
+ignore = []
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.lint.pylint]
+max-statements = 50
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_any_unimported = false
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+check_untyped_defs = true
+strict_equality = true
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --cov=src --cov-report=html --cov-report=term-missing"
+asyncio_mode = "auto"
+
+[tool.coverage.run]
+source = ["src"]
+omit = ["tests/*", "src/__main__.py"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+]
+
+[tool.bandit]
+exclude_dirs = ["tests", "scripts"]
+skips = ["B101"]
