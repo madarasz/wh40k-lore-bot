@@ -2,7 +2,8 @@
 
 import sys
 
-from src.utils.config import Config, ConfigurationError
+from src.utils.config import Config
+from src.utils.exceptions import ConfigurationError
 from src.utils.logger import configure_logging, get_logger
 
 
