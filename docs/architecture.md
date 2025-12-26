@@ -46,6 +46,8 @@ This is a new project being built from scratch. However, you bring valuable expe
 | Date | Version | Description | Author |
 |------|---------|-------------|--------|
 | 2025-12-25 | 1.0 | Initial architecture document | Winston (Architect Agent) |
+| 2025-12-25 | 1.1 | Updated data ingestion approach from web scraping to XML export parsing | John (PM Agent) |
+| 2025-12-25 | 1.2 | Removed canon classification fields and logic - Fandom wiki is canon-only | John (PM Agent) |
 
 ---
 
@@ -53,7 +55,7 @@ This is a new project being built from scratch. However, you bring valuable expe
 
 ### Technical Summary
 
-The WH40k Lore Bot is a **traditional server-based Discord bot** running on Debian, using a hybrid retrieval architecture (vector + BM25) with multi-LLM provider support. The system employs a **Central Orchestrator Pattern** that exposes a unified RAG query interface, enabling the same retrieval and generation flow from CLI tools, Discord bot handlers, and automated tests. The architecture scrapes and processes Warhammer 40K wiki content, stores it in a vector database with rich metadata, and responds to user queries in Hungarian (with English fallback) using on-the-fly translation. Core patterns include the orchestrator for flow coordination, repository abstraction for data access, multi-provider strategy for LLM flexibility, and metadata-driven retrieval for canon/speculation separation.
+The WH40k Lore Bot is a **traditional server-based Discord bot** running on Debian, using a hybrid retrieval architecture (vector + BM25) with multi-LLM provider support. The system employs a **Central Orchestrator Pattern** that exposes a unified RAG query interface, enabling the same retrieval and generation flow from CLI tools, Discord bot handlers, and automated tests. The architecture parses and processes Warhammer 40K wiki XML export content, stores it in a vector database with rich metadata, and responds to user queries in Hungarian (with English fallback) using on-the-fly translation. Core patterns include the orchestrator for flow coordination, repository abstraction for data access, multi-provider strategy for LLM flexibility, and metadata-driven retrieval for content filtering.
 
 ### High Level Overview
 
@@ -104,7 +106,7 @@ Entry Points → Orchestrator → RAG Pipeline → Response
 
 5. **On-the-Fly Translation:** VectorDB stores English wiki content, LLM translates responses to Hungarian during generation. More flexible than pre-translation, supports English fallback.
 
-6. **Metadata-Driven Architecture:** Rich chunk metadata (faction, era, canon_flag, spoiler_flag, links array) enables filtering and cross-reference expansion without full knowledge graph complexity.
+6. **Metadata-Driven Retrieval:** Rich chunk metadata (faction, era, spoiler_flag, links array) enables filtering and cross-reference expansion without full knowledge graph complexity. Fandom wiki content is canonical by default.
 
 7. **Traditional Server Deployment:** Single Debian VM process. Simpler operations, lower latency (no cold starts), persistent in-memory caching possible.
 
@@ -149,7 +151,7 @@ graph TB
     end
 
     subgraph "Data Ingestion Pipeline - Offline"
-        WikiScraper[Wiki Scraper] --> |HTML to Markdown| MarkdownStore[(Markdown Archive)]
+        XMLParser[Wiki XML Parser] --> |Parse & Convert| MarkdownStore[(Markdown Archive)]
         MarkdownStore --> Chunker[Section-Based Chunker]
         Chunker --> MetadataExtractor[Metadata Extractor]
         MetadataExtractor --> Embedder[Embedding Service]
@@ -159,7 +161,7 @@ graph TB
     end
 
     subgraph "External Sources"
-        Wiki[WH40k Fandom Wiki / Lexicanum] --> WikiScraper
+        Wiki[WH40k Fandom Wiki XML Export] --> XMLParser
     end
 
     style Orchestrator fill:#f96,stroke:#333,stroke-width:4px
@@ -232,9 +234,8 @@ graph TB
 | | Anthropic Claude | Latest SDK | High-quality LLM option | Excellent reasoning, long context, good for complex lore queries |
 | | xAI Grok | Latest SDK | Alternative LLM provider | Newer option, competitive features, diversification |
 | | Mistral | Latest SDK | Open-weights LLM option | Cost-effective, European provider, good performance |
-| **Web Scraping** | BeautifulSoup4 | 4.12+ | HTML parsing for wiki scraping | Flexible, simple API, perfect for wiki structure, wide adoption |
-| | requests | 2.31+ | HTTP client for wiki fetching | Standard Python HTTP library, rate limiting support, reliable |
-| | markdownify | 0.11+ | HTML to Markdown conversion | Clean conversion, preserves structure, enables archival |
+| **XML Parsing** | lxml | 5.0+ | XML parsing for wiki data export | High-performance, standards-compliant, XPath support for navigation |
+| | defusedxml | 0.7+ | Secure XML parsing | Protection against XML vulnerabilities (billion laughs, entity expansion) |
 | **Database (Logs/Trivia)** | SQLite | 3.40+ (Python stdlib) | Structured data persistence | Embedded, zero-config, perfect for single server, adequate for 300 users |
 | **ORM** | SQLAlchemy | 2.0+ | Database abstraction layer | Type-safe, async support, migrations, repository pattern implementation |
 | **Schema Migrations** | Alembic | 1.13+ | Database versioning and migrations | SQLAlchemy integration, version control for schema, team collaboration |
@@ -295,8 +296,6 @@ Core data models represent the domain entities and their relationships.
 - `subfaction`: Optional[str] - More specific (e.g., "Space Marines > Blood Angels")
 - `character_names`: List[str] - Named entities mentioned (NER extracted)
 - `era`: Optional[str] - Timeline period (e.g., "M31", "41st Millennium")
-- `canon_flag`: bool - True if canonical lore, False if speculation/theory
-- `canon_confidence`: float - 0.0-1.0 LLM classification confidence
 - `spoiler_flag`: bool - Contains major plot reveals
 - `content_type`: str - "narrative", "technical_specs", "timeline", "biography"
 - `links`: List[str] - Wiki article titles hyperlinked from this chunk
@@ -421,7 +420,6 @@ Core data models represent the domain entities and their relationships.
 - `personality_mode`: str - Active personality file (e.g., "default", "grimdark_narrator")
 - `rate_limit_per_user`: int - Queries per user per hour
 - `rate_limit_per_server`: int - Queries per server per hour
-- `canon_only_mode`: bool - Filter to canonical lore only
 - `spoiler_free_mode`: bool - Exclude spoiler-flagged chunks
 - `created_at`: datetime
 - `updated_at`: datetime
@@ -510,7 +508,7 @@ Based on the Central Orchestrator architecture and defined data models, here are
 **Technology Stack:** Asyncio for parallel retrieval, Custom RRF implementation
 
 #### 7. Metadata Filter
-**Responsibility:** Filters retrieved chunks based on server configuration (canon-only mode, spoiler-free mode).
+**Responsibility:** Filters retrieved chunks based on server configuration (spoiler-free mode, faction filters, era filters).
 
 **Key Interfaces:**
 - `filter_chunks(chunks: List[WikiChunk], filters: MetadataFilters) -> List[WikiChunk]`
@@ -653,16 +651,17 @@ Based on the Central Orchestrator architecture and defined data models, here are
 
 ### Data Ingestion Components (Offline)
 
-#### 21. Wiki Scraper
-**Responsibility:** Scrapes wiki HTML, converts to markdown, stores in archive directory.
+#### 21. Wiki XML Parser
+**Responsibility:** Parses downloaded Fandom Wiki XML export, extracts articles, converts to markdown, stores in archive directory.
 
 **Key Interfaces:**
-- `scrape_article(url: str) -> MarkdownArticle`
-- `scrape_wiki_batch(article_urls: List[str], output_dir: str) -> ScrapingReport`
+- `parse_xml_export(xml_file_path: str) -> List[WikiArticle]`
+- `extract_article(xml_element: Element) -> MarkdownArticle`
+- `save_articles_batch(articles: List[MarkdownArticle], output_dir: str) -> ParsingReport`
 
-**Dependencies:** requests, BeautifulSoup4, markdownify
+**Dependencies:** lxml, defusedxml
 
-**Technology Stack:** Rate limiting (1 req/2s), User-agent headers
+**Technology Stack:** SAX/iterparse for memory-efficient streaming of large XML (173MB+), XPath for article extraction
 
 #### 22. Chunking Service
 **Responsibility:** Splits markdown articles into section-based chunks with metadata.
@@ -673,14 +672,14 @@ Based on the Central Orchestrator architecture and defined data models, here are
 **Technology Stack:** Markdown parser, target chunk size 200-500 tokens
 
 #### 23. Metadata Extractor
-**Responsibility:** Extracts faction, era, canon_flag, links, character names from chunks.
+**Responsibility:** Extracts faction, era, spoiler detection, links, character names from chunks.
 
 **Key Interfaces:**
-- `extract_metadata(chunk: Chunk, article_html: str) -> ChunkMetadata`
+- `extract_metadata(chunk: Chunk, article_metadata: dict) -> ChunkMetadata`
 
-**Dependencies:** Optional spaCy for NER, LLM for canon classification
+**Dependencies:** Optional spaCy for NER, regex for link extraction
 
-**Technology Stack:** Regex for links, LLM prompting for canon detection
+**Technology Stack:** Regex for links, optional LLM prompting for faction/era classification if not inferrable from article metadata
 
 #### 24. Embedding Service
 **Responsibility:** Generates embeddings for chunks and stores in vector DB.
@@ -787,28 +786,29 @@ The WH40k Lore Bot integrates with several external services.
 
 **Integration Notes:** Use `mistralai` SDK, add in Phase 2
 
-### 7. Warhammer 40K Wiki (Scraping - Not Official API)
+### 7. Warhammer 40K Wiki (XML Data Export)
 
 - **Purpose:** Primary data source for lore content
-- **Base URL(s):**
-  - Option A: `https://warhammer40k.fandom.com` (Fandom Wiki)
-  - Option B: `https://wh40k.lexicanum.com` (Lexicanum)
-- **Authentication:** None (public web pages)
-- **Rate Limits:** Self-imposed 1 request per 2 seconds
-
-**Key Endpoints:**
-- `GET /wiki/{Article_Title}` - Fetch individual articles
+- **Source:** `https://warhammer40k.fandom.com` (Fandom Wiki)
+- **Data Format:** XML export file (MediaWiki XML dump format)
+- **Current Size:** ~173MB compressed XML
+- **Authentication:** None (public data export)
+- **Download Method:** Manual download from Fandom Wiki's Special:Export or data dump pages
 
 **Integration Notes:**
-- Use requests + BeautifulSoup4
-- Convert to Markdown with markdownify
+- Download complete wiki XML export file
+- Parse using lxml with iterparse for memory-efficient streaming
+- Extract article content, metadata, and internal links
+- Convert wiki markup to Markdown
 - Store in `data/markdown-archive/` (private sub-repo)
 - Legal: CC-BY-SA licensed, non-commercial use, attribution required
 
-**Fallback Strategy:**
-- Primary: Fandom Wiki
-- Secondary: Lexicanum
-- Tertiary: Frozen markdown archive
+**Advantages over Web Scraping:**
+- Single download vs. thousands of HTTP requests
+- No rate limiting concerns
+- Complete wiki snapshot with consistent timestamp
+- Includes revision history and metadata
+- Faster processing (local file parsing vs. network calls)
 
 ### API Cost Estimates (Monthly for 1000 Queries)
 
@@ -951,7 +951,7 @@ sequenceDiagram
     actor Admin
     participant CLI as CLI Adapter
     participant Builder as Index Builder
-    participant Scraper as Wiki Scraper
+    participant XMLParser as Wiki XML Parser
     participant Chunker as Chunking Service
     participant MetaExtract as Metadata Extractor
     participant EmbedSvc as Embedding Service
@@ -960,26 +960,22 @@ sequenceDiagram
     participant BM25 as BM25 Repository
     participant FileSystem as Markdown Archive
 
-    Admin->>CLI: rebuild-indexes --source=urls.txt
-    CLI->>Builder: rebuild_indexes()
+    Admin->>CLI: rebuild-indexes --source=wiki-export.xml
+    CLI->>Builder: rebuild_indexes(xml_path)
 
-    loop For each URL
-        Builder->>Scraper: scrape_article(url)
-        Scraper->>Scraper: fetch + parse HTML
-        Scraper->>Scraper: convert to markdown
-        Scraper->>FileSystem: save_markdown()
-        Scraper-->>Builder: MarkdownArticle
-    end
+    Builder->>XMLParser: parse_xml_export(xml_path)
 
-    loop For each markdown
+    loop Stream XML (iterparse)
+        XMLParser->>XMLParser: extract article element
+        XMLParser->>XMLParser: parse wiki markup to markdown
+        XMLParser->>FileSystem: save_markdown()
+        XMLParser-->>Builder: MarkdownArticle
+
         Builder->>Chunker: chunk_article()
         Chunker-->>Builder: chunks[10-50]
 
         loop For each chunk
             Builder->>MetaExtract: extract_metadata()
-            opt Canon Classification
-                MetaExtract->>OpenAI: classify_canon()
-            end
             MetaExtract-->>Builder: ChunkMetadata
         end
 
@@ -995,7 +991,8 @@ sequenceDiagram
     CLI->>Admin: Complete: 45K chunks, $0.90
 ```
 
-**Time Estimate:** 8-12 hours for full wiki (10K articles)
+**Time Estimate:** 2-4 hours for full wiki XML parsing and indexing (10K articles)
+**Memory Usage:** Streaming parser keeps memory footprint low (<500MB) despite 173MB XML file
 
 ### Workflow 4: Error Handling - Rate Limit Exceeded
 
@@ -1152,7 +1149,6 @@ CREATE TABLE server_configs (
     personality_mode TEXT DEFAULT 'default',
     rate_limit_per_user INTEGER DEFAULT 10,
     rate_limit_per_server INTEGER DEFAULT 100,
-    canon_only_mode BOOLEAN DEFAULT 0,
     spoiler_free_mode BOOLEAN DEFAULT 0,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -1204,8 +1200,6 @@ GROUP BY user_id, server_id, month;
         "character_names": ["Roboute Guilliman", "Horus"],
         "era": "M31",
         "content_type": "biography",
-        "canon_flag": true,
-        "canon_confidence": 0.95,
         "spoiler_flag": false,
         "links": ["Ultramarines", "Primarch", "Horus Heresy"],
         "source_books": ["Codex: Space Marines 9th Ed"],
@@ -1217,10 +1211,10 @@ GROUP BY user_id, server_id, month;
 
 **Metadata Filtering Examples:**
 ```python
-# Canon-only mode
+# Spoiler-free mode
 collection.query(
     query_embeddings=[vector],
-    where={"canon_flag": True}
+    where={"spoiler_flag": False}
 )
 
 # Complex filter
@@ -1228,9 +1222,9 @@ collection.query(
     query_embeddings=[vector],
     where={
         "$and": [
-            {"canon_flag": True},
             {"spoiler_flag": False},
-            {"era": "M31"}
+            {"era": "M31"},
+            {"faction": "Imperium"}
         ]
     }
 )
@@ -1336,7 +1330,7 @@ wh40k-lore-bot/
 │   │   └── trivia_system.py
 │   │
 │   ├── ingestion/                         # Data pipeline
-│   │   ├── wiki_scraper.py
+│   │   ├── wiki_xml_parser.py
 │   │   ├── chunking_service.py
 │   │   ├── metadata_extractor.py
 │   │   ├── embedding_service.py
@@ -1372,7 +1366,7 @@ wh40k-lore-bot/
 │   └── fixtures/
 
 ├── scripts/                               # Utility scripts
-│   ├── ingest_wiki.sh
+│   ├── parse_wiki_xml.sh
 │   ├── rebuild_indexes.sh
 │   ├── backup_databases.sh
 │   └── migrate_database.sh
@@ -1431,6 +1425,7 @@ poetry run python -m src
 **CLI Commands:**
 ```bash
 poetry run python -m src.adapters.cli_adapter query "Who is Guilliman?"
+poetry run python -m src.adapters.cli_adapter parse-wiki-xml --source wiki-export.xml
 poetry run python -m src.adapters.cli_adapter rebuild-indexes
 ```
 
