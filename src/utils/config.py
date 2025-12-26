@@ -5,11 +5,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-
-class ConfigurationError(Exception):
-    """Raised when required configuration is missing or invalid."""
-
-    pass
+from src.utils.exceptions import ConfigurationError
 
 
 class Config:

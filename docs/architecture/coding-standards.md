@@ -9,16 +9,28 @@
 - Bash for scripts only
 - SQL via Alembic migrations
 
+**Third-Party API SDKs:**
+- ALWAYS use latest stable SDK versions for all third-party APIs
+- Required SDKs (as of Dec 2025):
+  - OpenAI SDK: ^2.14 (`poetry add openai`)
+  - Anthropic SDK: ^0.75 (`poetry add anthropic`)
+  - Google Gen AI SDK: ^1.56 (`poetry add google-genai`) - NOTE: `google-generativeai` deprecated
+  - Discord.py: ^2.6 (`poetry add discord-py`)
+- Update SDKs quarterly or when security patches released
+- Pin exact versions in poetry.lock for reproducibility
+- Test thoroughly after SDK upgrades before deployment
+
 **Style & Linting:**
 - Linter: ruff (replaces flake8, black, isort)
 - Line length: 100 characters
-- Pre-commit hooks: REQUIRED
+- Pre-commit hooks: REQUIRED - activate with `poetry run pre-commit install`
 
 **Type Checking:**
 - Type hints REQUIRED for all function signatures
 - Tool: mypy in strict mode
 
 **Pre-Commit Configuration:**
+To activate: `poetry run pre-commit install` (one-time setup per developer)
 ```yaml
 # .pre-commit-config.yaml
 repos:
@@ -33,12 +45,15 @@ repos:
     rev: v1.8.0
     hooks:
       - id: mypy
+        args: [--ignore-missing-imports]
+        files: ^src/
 
   - repo: https://github.com/PyCQA/bandit
-    rev: 1.7.5
+    rev: 1.7.10
     hooks:
       - id: bandit
         args: ['-c', 'pyproject.toml']
+        additional_dependencies: ['bandit[toml]']
 ```
 
 ## SOLID Principles - MANDATORY

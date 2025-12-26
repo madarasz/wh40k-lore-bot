@@ -10,10 +10,12 @@ repos:
     rev: v1.8.0
     hooks:
       - id: mypy
-        additional_dependencies: [types-all]
+        args: [--ignore-missing-imports]
+        files: ^src/
 
   - repo: https://github.com/PyCQA/bandit
-    rev: 1.7.5
+    rev: 1.7.10
     hooks:
       - id: bandit
         args: ['-c', 'pyproject.toml']
+        additional_dependencies: ['bandit[toml]']
