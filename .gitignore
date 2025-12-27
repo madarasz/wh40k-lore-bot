@@ -4,6 +4,8 @@
 
 # Data directories
 data/
+!data/markdown-archive/
+data/markdown-archive/*.md
 *.db
 *.sqlite
 *.sqlite3

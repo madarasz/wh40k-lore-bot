@@ -79,6 +79,18 @@ The goal is quality delivery, not just checking boxes.]]
    - [ ] User-facing documentation updated, if changes impact users.
    - [ ] Technical documentation (e.g., READMEs, system diagrams) updated if significant architectural changes were made.
 
+8. **Git & Pull Request:**
+
+   [[LLM: Version control and collaboration workflow. Complete these steps to finalize the story]]
+   - [ ] All changes committed with descriptive commit messages following project conventions.
+   - [ ] Working branch created from main/master (if not already on feature branch).
+   - [ ] All commits pushed to remote repository.
+   - [ ] Pull request created with:
+     - Clear title referencing the story (e.g., "Story 1.3: Markdown Archive Setup")
+     - Description summarizing changes and linking to the story
+     - Test results and validation notes included
+   - [ ] Pull request URL documented in the story file Dev Agent Record section.
+
 ## Final Confirmation
 
 [[LLM: FINAL DOD SUMMARY
