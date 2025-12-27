@@ -10,8 +10,13 @@ repos:
     rev: v1.19.1
     hooks:
       - id: mypy
-        args: [--ignore-missing-imports]
+        args: [--config-file=pyproject.toml]
         files: ^src/
+        additional_dependencies:
+          - sqlalchemy[mypy]
+          - python-dotenv
+          - structlog
+          - alembic
 
   - repo: https://github.com/PyCQA/bandit
     rev: 1.9.2

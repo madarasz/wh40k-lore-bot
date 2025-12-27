@@ -122,7 +122,7 @@ poetry run ruff check . --fix
 poetry run ruff format .
 
 # Run type checker
-poetry run mypy .
+poetry run mypy src/
 
 # Run all pre-commit hooks manually
 poetry run pre-commit run --all-files
@@ -216,7 +216,7 @@ See [docs/architecture/](docs/architecture/) for detailed architecture documenta
 2. Make your changes
 3. Ensure all tests pass: `poetry run pytest`
 4. Ensure linting passes: `poetry run ruff check .`
-5. Ensure type checking passes: `poetry run mypy .`
+5. Ensure type checking passes: `poetry run mypy src/`
 6. Commit with conventional commit messages
 7. Submit a pull request
 
