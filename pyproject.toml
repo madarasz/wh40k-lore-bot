@@ -34,6 +34,7 @@ pytest-asyncio = "^0.23"
 pre-commit = "^3.6"
 pytest-mock = "^3.12"
 bandit = "^1.7"
+types-pyyaml = "^6.0.12.20250915"
 
 [build-system]
 requires = ["poetry-core"]

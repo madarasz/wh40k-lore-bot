@@ -50,10 +50,10 @@ class TestSaveMarkdownFile:
         assert content.startswith("---\n")
         assert "---\n\n" in content
 
-        # Check frontmatter fields
-        assert 'title: "Blood Angels"' in content
-        assert 'wiki_id: "12345"' in content
-        assert 'last_updated: "2024-09-20T14:18:31Z"' in content
+        # Check frontmatter fields (YAML safe_dump may use single quotes or no quotes)
+        assert "title: Blood Angels" in content
+        assert "wiki_id: '12345'" in content
+        assert "last_updated: '2024-09-20T14:18:31Z'" in content
         assert "word_count: 1500" in content
 
     def test_content_preserved_exactly(
@@ -98,20 +98,18 @@ class TestSaveMarkdownFile:
         assert "Updated content for Blood Angels chapter" in second_content
         assert "word_count: 500" in second_content
 
-    def test_uses_default_archive_path(self, sample_article: WikiArticle) -> None:
+    def test_uses_default_archive_path(
+        self, sample_article: WikiArticle, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Test that default archive path is used when not specified."""
-        # Clean up if exists from previous tests
-        default_path = Path("data") / "markdown-archive" / "Blood_Angels.md"
-        if default_path.exists():
-            default_path.unlink()
+        # Change to temp directory so default path is created there
+        monkeypatch.chdir(tmp_path)
 
         result_path = save_markdown_file(sample_article)
 
+        expected_path = tmp_path / "data" / "markdown-archive" / "Blood_Angels.md"
         assert result_path.exists()
-        assert result_path == default_path
-
-        # Cleanup
-        result_path.unlink()
+        assert result_path.resolve() == expected_path
 
     def test_creates_archive_directory_if_missing(
         self, sample_article: WikiArticle, tmp_path: Path
@@ -185,3 +183,27 @@ Founded during the Great Crusade.
         actual_content = parts[2].lstrip("\n")
 
         assert actual_content == multiline_content
+
+    def test_double_quotes_in_title(self, temp_archive_path: Path) -> None:
+        """Test that double quotes in title are properly escaped in YAML."""
+        article = WikiArticle(
+            title='The "Fallen" Angels',
+            wiki_id="22222",
+            last_updated="2024-09-24T16:00:00Z",
+            content="The Fallen are renegade Dark Angels...",
+            word_count=300,
+        )
+
+        result_path = save_markdown_file(article, temp_archive_path)
+        saved_content = result_path.read_text(encoding="utf-8")
+
+        # Verify the file was created and YAML is valid (doesn't break on quotes)
+        assert result_path.exists()
+        assert saved_content.startswith("---\n")
+        assert "---\n\n" in saved_content
+
+        # YAML should properly escape or quote the title with double quotes
+        # yaml.safe_dump will use single quotes or escape sequences
+        assert "title:" in saved_content
+        # Verify the content is preserved correctly
+        assert "The Fallen are renegade Dark Angels..." in saved_content

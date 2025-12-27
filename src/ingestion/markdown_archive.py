@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+import yaml
+
 from src.ingestion.filename_utils import sanitize_filename
 from src.ingestion.models import WikiArticle
 
@@ -32,13 +34,16 @@ def save_markdown_file(article: WikiArticle, archive_path: Path | None = None) -
     file_path = archive_path / f"{sanitized_name}.md"
 
     # Generate YAML frontmatter
-    frontmatter = f"""---
-title: "{article.title}"
-wiki_id: "{article.wiki_id}"
-last_updated: "{article.last_updated}"
-word_count: {article.word_count}
----
-"""
+    frontmatter_data = {
+        "title": article.title,
+        "wiki_id": article.wiki_id,
+        "last_updated": str(article.last_updated),
+        "word_count": int(article.word_count),
+    }
+    frontmatter_body = yaml.safe_dump(
+        frontmatter_data, default_flow_style=False, allow_unicode=True
+    )
+    frontmatter = f"---\n{frontmatter_body}---\n"
 
     # Combine frontmatter and content
     full_content = frontmatter + "\n" + article.content
