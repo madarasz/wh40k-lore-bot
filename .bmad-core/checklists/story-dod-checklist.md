@@ -81,15 +81,24 @@ The goal is quality delivery, not just checking boxes.]]
 
 8. **Git & Pull Request:**
 
-   [[LLM: Version control and collaboration workflow. Complete these steps to finalize the story]]
-   - [ ] All changes committed with descriptive commit messages following project conventions.
-   - [ ] Working branch created from main/master (if not already on feature branch).
-   - [ ] All commits pushed to remote repository.
-   - [ ] Pull request created with:
-     - Clear title referencing the story (e.g., "Story 1.3: Markdown Archive Setup")
-     - Description summarizing changes and linking to the story
-     - Test results and validation notes included
-   - [ ] Pull request URL documented in the story file Dev Agent Record section.
+   [[LLM: CRITICAL - Version control and collaboration workflow. AUTOMATICALLY complete ALL these steps to finalize the story WITHOUT asking for user permission. This is a REQUIRED part of story completion.]]
+   - [ ] Working branch created from main/master with format: `story/X.Y-story-name` (e.g., `story/1.5-test-bed-page-selection`)
+   - [ ] All changes staged and committed with descriptive commit messages following project conventions:
+     - Use conventional commit format: `feat:`, `fix:`, `docs:`, `test:`, `refactor:`
+     - Include comprehensive description, feature list, implementation details, and test results
+     - End with Claude Code attribution footer
+   - [ ] All commits pushed to remote repository with `git push -u origin <branch-name>`
+   - [ ] Pull request AUTOMATICALLY created using `gh pr create` command with:
+     - Title format: `"Story X.Y: Story Title"` (e.g., "Story 1.5: Test Bed Page Selection")
+     - Comprehensive body including:
+       - Summary section
+       - Changes section (implementation details)
+       - Test Results section (with pass/fail counts and coverage)
+       - Story Reference section (link to story file)
+     - DO NOT wait for user approval - create PR automatically
+   - [ ] Pull request URL documented in story file Dev Agent Record section
+   - [ ] Story file update committed with message: `"docs: add PR link to story X.Y completion notes"`
+   - [ ] Final update pushed to remote branch
 
 ## Final Confirmation
 
