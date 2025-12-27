@@ -39,6 +39,7 @@ lxml-stubs = "^0.5.1"
 
 [tool.poetry.scripts]
 parse-wiki = "src.cli.parse_wiki:parse_wiki"
+build-test-bed = "src.cli.build_test_bed:build_test_bed"
 
 [build-system]
 requires = ["poetry-core"]
