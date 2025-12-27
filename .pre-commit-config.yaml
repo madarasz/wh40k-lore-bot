@@ -19,6 +19,9 @@ repos:
           - alembic
           - PyYAML
           - types-PyYAML
+          - lxml-stubs
+          - click
+          - defusedxml
 
   - repo: https://github.com/PyCQA/bandit
     rev: 1.9.2

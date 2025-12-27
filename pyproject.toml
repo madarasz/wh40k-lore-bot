@@ -35,6 +35,10 @@ pre-commit = "^3.6"
 pytest-mock = "^3.12"
 bandit = "^1.7"
 types-pyyaml = "^6.0.12.20250915"
+lxml-stubs = "^0.5.1"
+
+[tool.poetry.scripts]
+parse-wiki = "src.cli.parse_wiki:parse_wiki"
 
 [build-system]
 requires = ["poetry-core"]
