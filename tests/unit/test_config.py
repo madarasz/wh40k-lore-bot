@@ -1,5 +1,7 @@
 """Tests for configuration management."""
 
+from unittest.mock import patch
+
 import pytest
 
 from src.utils.config import Config, ConfigurationError
@@ -12,8 +14,10 @@ def test_config_missing_required_env_var(monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("DATABASE_URL", raising=False)
 
-    with pytest.raises(ConfigurationError, match="DISCORD_BOT_TOKEN"):
-        Config()
+    # Mock load_dotenv to prevent loading from .env file
+    with patch("src.utils.config.load_dotenv"):
+        with pytest.raises(ConfigurationError, match="DISCORD_BOT_TOKEN"):
+            Config()
 
 
 def test_config_loads_required_env_vars(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -22,11 +26,12 @@ def test_config_loads_required_env_vars(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setenv("OPENAI_API_KEY", "test_openai_key")
     monkeypatch.setenv("DATABASE_URL", "sqlite:///test.db")
 
-    config = Config()
+    with patch("src.utils.config.load_dotenv"):
+        config = Config()
 
-    assert config.discord_bot_token == "test_discord_token"
-    assert config.openai_api_key == "test_openai_key"
-    assert config.database_url == "sqlite:///test.db"
+        assert config.discord_bot_token == "test_discord_token"
+        assert config.openai_api_key == "test_openai_key"
+        assert config.database_url == "sqlite:///test.db"
 
 
 def test_config_default_log_level(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -36,9 +41,10 @@ def test_config_default_log_level(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DATABASE_URL", "sqlite:///test.db")
     monkeypatch.delenv("LOG_LEVEL", raising=False)
 
-    config = Config()
+    with patch("src.utils.config.load_dotenv"):
+        config = Config()
 
-    assert config.log_level == "INFO"
+        assert config.log_level == "INFO"
 
 
 def test_config_custom_log_level(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -48,9 +54,10 @@ def test_config_custom_log_level(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DATABASE_URL", "sqlite:///test.db")
     monkeypatch.setenv("LOG_LEVEL", "DEBUG")
 
-    config = Config()
+    with patch("src.utils.config.load_dotenv"):
+        config = Config()
 
-    assert config.log_level == "DEBUG"
+        assert config.log_level == "DEBUG"
 
 
 def test_config_get_optional_with_default(monkeypatch: pytest.MonkeyPatch) -> None:

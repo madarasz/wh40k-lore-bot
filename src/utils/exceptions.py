@@ -46,6 +46,12 @@ class IngestionError(WH40KLoreBotError):
     pass
 
 
+class EmbeddingGenerationError(IngestionError):
+    """Embedding generation error."""
+
+    pass
+
+
 class ValidationError(WH40KLoreBotError):
     """Input validation error."""
 
