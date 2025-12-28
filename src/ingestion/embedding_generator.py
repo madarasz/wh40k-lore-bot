@@ -87,15 +87,16 @@ class EmbeddingGenerator:
         self.total_tokens = 0
         self.total_cost = 0.0
 
-    def generate_embeddings(self, chunks: list[str]) -> list[np.ndarray | None]:
+    def generate_embeddings(self, chunks: list[str | None]) -> list[np.ndarray | None]:
         """Generate embeddings for text chunks with batching and retry logic.
 
         Args:
-            chunks: List of text strings to embed
+            chunks: List of text strings to embed. None values are allowed and will be
+                treated as invalid (filtered out and returned as None in results).
 
         Returns:
             List of numpy arrays (1536-dim, float32), one per chunk.
-            Returns None for chunks that failed to embed after retries.
+            Returns None for chunks that failed to embed after retries or were invalid.
 
         Raises:
             EmbeddingGenerationError: If all chunks fail or critical error occurs
