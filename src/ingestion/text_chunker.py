@@ -370,15 +370,8 @@ class MarkdownChunker:
             return 0
         return len(self._encoder.encode(text))
 
-    def _merge_tiny_chunks(self, chunks: list[Chunk]) -> list[Chunk]:
-        """Merge chunks smaller than MIN_TOKENS with adjacent chunks.
-
-        Args:
-            chunks: List of chunks to process
-
-        Returns:
-            List of chunks with tiny chunks merged
-        """
+    def _merge_chunks_by_threshold(self, chunks: list[Chunk], threshold: int) -> list[Chunk]:
+        """Merge chunks below token threshold with adjacent chunks."""
         if not chunks:
             return chunks
 
@@ -389,56 +382,19 @@ class MarkdownChunker:
             current = chunks[i]
             current_tokens = self._count_tokens(current.chunk_text)
 
-            # If current is tiny and not the last chunk, merge with next
-            if current_tokens < MIN_TOKENS and i < len(chunks) - 1:
+            if current_tokens < threshold and i < len(chunks) - 1:
                 next_chunk = chunks[i + 1]
-                # Merge current with next
                 merged_text = current.chunk_text + "\n\n" + next_chunk.chunk_text
                 next_chunk.chunk_text = merged_text
-                # Skip current, next will be processed in next iteration
                 i += 1
             else:
                 merged.append(current)
                 i += 1
 
         return merged
+
+    def _merge_tiny_chunks(self, chunks: list[Chunk]) -> list[Chunk]:
+        return self._merge_chunks_by_threshold(chunks, MIN_TOKENS)
 
     def _merge_header_only_chunks(self, chunks: list[Chunk]) -> list[Chunk]:
-        """Merge header-only chunks (< 10 tokens) with adjacent chunks.
-
-        This is used to merge sections that are only headers with no content,
-        which typically happens when a section header is immediately followed
-        by a subsection header.
-
-        Args:
-            chunks: List of chunks to process
-
-        Returns:
-            List of chunks with header-only chunks merged
-        """
-        if not chunks:
-            return chunks
-
-        # Only merge extremely tiny chunks (header-only, < 10 tokens)
-        header_only_threshold = 10
-
-        merged: list[Chunk] = []
-        i = 0
-
-        while i < len(chunks):
-            current = chunks[i]
-            current_tokens = self._count_tokens(current.chunk_text)
-
-            # If current is header-only and not the last chunk, merge with next
-            if current_tokens < header_only_threshold and i < len(chunks) - 1:
-                next_chunk = chunks[i + 1]
-                # Merge current with next
-                merged_text = current.chunk_text + "\n\n" + next_chunk.chunk_text
-                next_chunk.chunk_text = merged_text
-                # Skip current, next will be processed in next iteration
-                i += 1
-            else:
-                merged.append(current)
-                i += 1
-
-        return merged
+        return self._merge_chunks_by_threshold(chunks, 10)
