@@ -5,8 +5,12 @@ import time
 
 import numpy as np
 import pytest
+from dotenv import load_dotenv
 
 from src.ingestion.embedding_generator import EmbeddingGenerator
+
+# Load .env file for integration tests
+load_dotenv()
 
 
 @pytest.mark.integration
