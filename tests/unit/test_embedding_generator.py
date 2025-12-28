@@ -31,22 +31,24 @@ class TestRateLimiter:
         # Should have 5 requests logged
         assert len(limiter.requests) == 5
 
-    def test_wait_if_needed_at_limit(self):
+    @patch("time.sleep")
+    def test_wait_if_needed_at_limit(self, mock_sleep):
         """Test wait when at rate limit."""
         limiter = RateLimiter(max_rpm=5)
 
-        # Fill up the limit
+        # Fill up the limit with current timestamps
+        current_time = time.time()
         for _ in range(5):
-            limiter.requests.append(time.time())
+            limiter.requests.append(current_time)
 
-        # Next request should wait
-        start_time = time.time()
+        # Next request should trigger sleep
         limiter.wait_if_needed()
-        elapsed = time.time() - start_time
 
-        # Should have waited (at least a small amount)
-        # We can't test exact timing, but it should be > 0
-        assert elapsed >= 0
+        # Should have called sleep (would wait ~60 seconds for oldest to expire)
+        assert mock_sleep.call_count == 1
+        # Sleep time should be close to 60 seconds (time until oldest request expires)
+        sleep_time = mock_sleep.call_args[0][0]
+        assert 55 <= sleep_time <= 61  # Allow some timing variance
 
     def test_cleanup_old_requests(self):
         """Test that old requests are removed."""
