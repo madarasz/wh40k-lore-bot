@@ -4,6 +4,23 @@ from dataclasses import dataclass
 
 
 @dataclass
+class Chunk:
+    """Represents a text chunk from a wiki article.
+
+    Attributes:
+        chunk_text: The actual text content of the chunk
+        article_title: Title of the source article
+        section_path: Hierarchical section path (e.g., "History > The Great Crusade")
+        chunk_index: 0-based index of chunk within the article
+    """
+
+    chunk_text: str
+    article_title: str
+    section_path: str
+    chunk_index: int
+
+
+@dataclass
 class WikiArticle:
     """Represents a wiki article with metadata.
 
