@@ -5,7 +5,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import defusedxml.ElementTree  # type: ignore[import-untyped]  # noqa: F401
-import mwparserfromhell  # type: ignore[import-not-found]
+import mwparserfromhell  # type: ignore[import-untyped]
 import structlog
 from lxml import etree
 
