@@ -40,6 +40,12 @@ class RetrievalError(WH40KLoreBotError):
     pass
 
 
+class VectorStoreError(RetrievalError):
+    """Vector database operation error."""
+
+    pass
+
+
 class IngestionError(WH40KLoreBotError):
     """Data ingestion pipeline error."""
 

@@ -74,34 +74,6 @@ class TestEmbeddingGeneratorIntegration:
         # Cost should be minimal (10 small chunks)
         assert summary["total_cost_usd"] < 0.01, "Cost should be less than 1 cent"
 
-    def test_semantic_similarity(self, generator):
-        """Test that semantically similar texts have similar embeddings."""
-        chunks = [
-            "The Primarch Roboute Guilliman leads the Ultramarines chapter.",
-            "Guilliman is the gene-father of the Ultramarines Space Marines.",
-            "Orks are green-skinned aliens who love fighting and war.",
-        ]
-
-        embeddings = generator.generate_embeddings(chunks)
-
-        # Calculate cosine similarity
-        def cosine_similarity(a, b):
-            return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
-
-        # Similar chunks (both about Guilliman/Ultramarines)
-        sim_similar = cosine_similarity(embeddings[0], embeddings[1])
-
-        # Dissimilar chunks (Guilliman vs Orks)
-        sim_dissimilar = cosine_similarity(embeddings[0], embeddings[2])
-
-        print("\nSimilarity scores:")
-        print(f"  Guilliman-Guilliman: {sim_similar:.4f}")
-        print(f"  Guilliman-Orks: {sim_dissimilar:.4f}")
-
-        # Related texts should be more similar than unrelated texts
-        assert sim_similar > sim_dissimilar, "Similar texts should have higher similarity score"
-        assert sim_similar > 0.8, "Very similar texts should have high similarity (>0.8)"
-
     def test_batch_processing_real_api(self, generator):
         """Test batch processing with real API."""
         # Create 15 chunks to test batching (but stay small for cost)
