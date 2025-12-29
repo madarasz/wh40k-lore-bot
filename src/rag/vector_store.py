@@ -11,8 +11,6 @@ from chromadb.api.models.Collection import Collection
 from src.models.wiki_chunk import WikiChunk
 from src.utils.exceptions import VectorStoreError
 
-logger = structlog.get_logger(__name__)
-
 
 class ChunkMetadata(TypedDict, total=False):
     """Metadata schema for chunk storage in Chroma.
