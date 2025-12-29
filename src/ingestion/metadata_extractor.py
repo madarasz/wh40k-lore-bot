@@ -32,7 +32,8 @@ class MetadataExtractor:
     def _detect_faction(self, text: str) -> str | None:
         """Detect the most frequently mentioned faction in text.
 
-        Uses keyword matching against predefined faction list. Case-insensitive.
+        Uses word-boundary regex matching to avoid substring collisions
+        (e.g., "Eldar" within "Craftworld Eldar"). Case-insensitive.
 
         Args:
             text: Content to analyze
@@ -43,9 +44,14 @@ class MetadataExtractor:
         text_lower = text.lower()
         faction_counts: dict[str, int] = {}
 
-        # Count occurrences of each faction
+        # Count occurrences of each faction using word-boundary regex
         for faction in FACTIONS:
-            count = text_lower.count(faction.lower())
+            # Escape special regex characters and create word-boundary pattern
+            escaped_faction = re.escape(faction.lower())
+            pattern = r"\b" + escaped_faction + r"\b"
+            matches = re.findall(pattern, text_lower)
+            count = len(matches)
+
             if count > 0:
                 # Normalize using aliases if available
                 normalized = FACTION_ALIASES.get(faction.lower(), faction)

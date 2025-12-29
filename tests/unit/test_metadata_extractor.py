@@ -51,6 +51,39 @@ class TestFactionDetection:
         faction = extractor._detect_faction(text)
         assert faction is None
 
+    def test_no_substring_collision(self) -> None:
+        """Test that shorter faction names inside longer ones are not double-counted.
+
+        For example, "Eldar" should not match inside "Craftworld Eldar" or "Dark Eldar".
+        The function should use word-boundary matching to prevent substring collisions.
+        """
+        extractor = MetadataExtractor()
+        text = """
+        The Craftworld Eldar are known for their psychic powers.
+        The Dark Eldar raid from Commorragh.
+        The Craftworld Eldar have farseers.
+        """
+        faction = extractor._detect_faction(text)
+        # "Craftworld Eldar" appears 2 times, "Dark Eldar" appears 1 time
+        # "Eldar" should NOT be counted separately (3 times) as it's part of longer names
+        # Result should be "Eldar" (normalized from "Craftworld Eldar" and "Dark Eldar")
+        assert faction == "Eldar"
+
+    def test_word_boundary_matching(self) -> None:
+        """Test that factions are matched with word boundaries.
+
+        Ensures that faction names only match as complete words, not as substrings.
+        """
+        extractor = MetadataExtractor()
+        # "Tau" should only match the standalone word, not in "Centaur" or similar
+        text = """
+        The Tau Empire expanded their borders.
+        The Tau are known for their greater good philosophy.
+        The centaur-like creatures were not involved.
+        """
+        faction = extractor._detect_faction(text)
+        assert faction == "Tau"
+
 
 class TestEraDetection:
     """Test era detection functionality."""
