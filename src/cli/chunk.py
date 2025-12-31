@@ -9,29 +9,12 @@ import click
 import structlog
 from tqdm import tqdm
 
+from src.cli.utils import load_wiki_ids
 from src.ingestion.markdown_loader import MarkdownLoader
 from src.ingestion.metadata_extractor import MetadataExtractor
 from src.ingestion.text_chunker import MarkdownChunker
 
 logger = structlog.get_logger(__name__)
-
-
-def _load_wiki_ids(wiki_ids_file: Path) -> list[str]:
-    """Load wiki IDs from a text file (one per line)."""
-    if not wiki_ids_file.exists():
-        raise FileNotFoundError(f"Wiki IDs file not found: {wiki_ids_file}")
-
-    wiki_ids = []
-    with wiki_ids_file.open("r") as f:
-        for line in f:
-            stripped_line = line.strip()
-            if stripped_line and not stripped_line.startswith("#"):
-                wiki_ids.append(stripped_line)
-
-    if not wiki_ids:
-        raise ValueError(f"No wiki IDs found in file: {wiki_ids_file}")
-
-    return wiki_ids
 
 
 @click.command()
@@ -85,7 +68,7 @@ def chunk(  # noqa: PLR0915
     wiki_ids = None
     if wiki_ids_file:
         try:
-            wiki_ids = _load_wiki_ids(wiki_ids_file)
+            wiki_ids = load_wiki_ids(wiki_ids_file)
             click.echo(f"  Loaded {len(wiki_ids)} wiki IDs from {wiki_ids_file}")
         except Exception as e:
             click.echo(f"  Failed to load wiki IDs: {e}", err=True)
@@ -118,7 +101,13 @@ def chunk(  # noqa: PLR0915
                     # Extract metadata
                     try:
                         metadata = metadata_extractor.extract_metadata(chunk_obj)
-                    except Exception:
+                    except Exception as e:
+                        logger.warning(
+                            "metadata_extraction_failed",
+                            article_title=article.title,
+                            chunk_index=chunk_obj.chunk_index,
+                            error=str(e),
+                        )
                         metadata = {}
 
                     chunk_entry = {

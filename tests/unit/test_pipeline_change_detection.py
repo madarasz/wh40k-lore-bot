@@ -48,9 +48,16 @@ class TestShouldProcessArticle:
         )
 
     def test_should_process_new_article(self, mock_pipeline, sample_article):
-        """Test that new articles (not in vector store) are processed."""
+        """Test that articles without stored last_updated are processed.
+
+        This covers two scenarios:
+        - New articles not yet in the vector store
+        - Legacy articles ingested before change detection was added
+
+        Both return None from get_article_last_updated and should be processed.
+        """
         pipeline, mock_store = mock_pipeline
-        mock_store.get_article_last_updated.return_value = None  # Not found
+        mock_store.get_article_last_updated.return_value = None
 
         result = pipeline._should_process_article(sample_article, force=False)
 
@@ -115,20 +122,6 @@ class TestShouldProcessArticle:
         result = pipeline._should_process_article(sample_article, force=False)
 
         # Should process on error (fail-safe)
-        assert result is True
-
-    def test_articles_without_last_updated_in_store(self, mock_pipeline, sample_article):
-        """Test handling articles that exist but have no last_updated metadata.
-
-        This can happen for articles ingested before change detection was added.
-        They should be re-processed to add the last_updated metadata.
-        """
-        pipeline, mock_store = mock_pipeline
-        # Article exists but no last_updated (old format)
-        mock_store.get_article_last_updated.return_value = None
-
-        result = pipeline._should_process_article(sample_article, force=False)
-
         assert result is True
 
 

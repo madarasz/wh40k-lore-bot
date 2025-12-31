@@ -391,7 +391,7 @@ class IngestionPipeline:
 
             # Filter out failed embeddings
             valid_chunks_with_embeddings: list[tuple[WikiArticle, Any, np.ndarray]] = []
-            for (article, chunk), embedding in zip(all_chunks, embeddings, strict=False):
+            for (article, chunk), embedding in zip(all_chunks, embeddings, strict=True):
                 if embedding is not None:
                     valid_chunks_with_embeddings.append((article, chunk, embedding))
                 else:
