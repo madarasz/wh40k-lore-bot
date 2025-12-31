@@ -1,6 +1,5 @@
 """WikiChunk model for storing article chunks with embeddings and metadata."""
 
-import uuid
 from datetime import UTC, datetime
 from typing import Any
 
@@ -10,15 +9,36 @@ from sqlalchemy.orm import Mapped, mapped_column
 from src.models.base import Base
 
 
+def generate_chunk_id(wiki_page_id: str, chunk_index: int) -> str:
+    """Generate deterministic chunk ID from wiki_page_id and chunk_index.
+
+    Format: {wiki_page_id}_{chunk_index}
+    Example: "58_0", "58_1", "100_5"
+
+    This enables reliable upsert/delete operations for re-ingestion.
+
+    Args:
+        wiki_page_id: Wiki page ID from markdown frontmatter
+        chunk_index: Zero-based index of chunk within article
+
+    Returns:
+        Deterministic ID string
+    """
+    return f"{wiki_page_id}_{chunk_index}"
+
+
 class WikiChunk(Base):
     """Represents a chunk of wiki article content with metadata.
 
     This model stores individual chunks of wiki articles along with their
     metadata for efficient retrieval and filtering in the RAG system.
 
+    Chunk IDs are deterministic (wiki_page_id_chunk_index) to enable
+    reliable updates during re-ingestion.
+
     Attributes:
-        id: Unique identifier for the chunk (UUID)
-        wiki_page_id: Wiki page ID from XML export (for traceability)
+        id: Deterministic identifier (wiki_page_id_chunk_index format)
+        wiki_page_id: Wiki page ID from markdown frontmatter (for deduplication)
         article_title: Title of the source article
         section_path: Hierarchical section path (e.g., "History > Horus Heresy")
         chunk_text: The actual text content of the chunk
@@ -30,11 +50,10 @@ class WikiChunk(Base):
 
     __tablename__ = "wiki_chunk"
 
-    # Primary key
+    # Primary key - deterministic based on wiki_page_id and chunk_index
     id: Mapped[str] = mapped_column(
-        String(36),
+        String(50),  # Increased from 36 (UUID) to accommodate new format
         primary_key=True,
-        default=lambda: str(uuid.uuid4()),
     )
 
     # Core fields
@@ -59,10 +78,21 @@ class WikiChunk(Base):
     )
 
     def __init__(self, **kwargs: Any) -> None:
-        """Initialize WikiChunk with defaults for auto-generated fields."""
-        # Set defaults for fields not provided
+        """Initialize WikiChunk with defaults for auto-generated fields.
+
+        The chunk ID is automatically generated from wiki_page_id and chunk_index
+        if not explicitly provided.
+        """
+        # Generate deterministic ID if not provided
         if "id" not in kwargs:
-            kwargs["id"] = str(uuid.uuid4())
+            if "wiki_page_id" in kwargs and "chunk_index" in kwargs:
+                kwargs["id"] = generate_chunk_id(kwargs["wiki_page_id"], kwargs["chunk_index"])
+            else:
+                raise ValueError(
+                    "Either 'id' or both 'wiki_page_id' and 'chunk_index' must be provided"
+                )
+
+        # Set defaults for optional fields
         if "metadata_json" not in kwargs:
             kwargs["metadata_json"] = {}
         if "created_at" not in kwargs:

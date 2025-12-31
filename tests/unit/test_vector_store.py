@@ -403,6 +403,64 @@ class TestUtilityMethods:
         with pytest.raises(VectorStoreError, match="Failed to get chunk by ID"):
             vector_store.get_by_id("chunk-1")
 
+    def test_get_article_last_updated_found(self, vector_store):
+        """Test getting last_updated for existing article."""
+        vector_store.collection.get.return_value = {
+            "ids": ["page-1_0"],
+            "metadatas": [
+                {
+                    "wiki_page_id": "page-1",
+                    "article_last_updated": "2024-01-15T10:30:00Z",
+                }
+            ],
+        }
+
+        last_updated = vector_store.get_article_last_updated("page-1")
+
+        assert last_updated == "2024-01-15T10:30:00Z"
+        vector_store.collection.get.assert_called_once_with(
+            where={"wiki_page_id": "page-1"},
+            limit=1,
+            include=["metadatas"],
+        )
+
+    def test_get_article_last_updated_not_found(self, vector_store):
+        """Test getting last_updated for non-existent article."""
+        vector_store.collection.get.return_value = {
+            "ids": [],
+            "metadatas": [],
+        }
+
+        last_updated = vector_store.get_article_last_updated("nonexistent-page")
+
+        assert last_updated is None
+
+    def test_get_article_last_updated_missing_metadata(self, vector_store):
+        """Test when article exists but has no article_last_updated in metadata.
+
+        This can happen for articles ingested before change detection was added.
+        """
+        vector_store.collection.get.return_value = {
+            "ids": ["old-page_0"],
+            "metadatas": [
+                {
+                    "wiki_page_id": "old-page",
+                    # No article_last_updated - old data format
+                }
+            ],
+        }
+
+        last_updated = vector_store.get_article_last_updated("old-page")
+
+        assert last_updated is None
+
+    def test_get_article_last_updated_failure(self, vector_store):
+        """Test get_article_last_updated failure handling."""
+        vector_store.collection.get.side_effect = Exception("Query failed")
+
+        with pytest.raises(VectorStoreError, match="Failed to get article last_updated"):
+            vector_store.get_article_last_updated("page-1")
+
 
 class TestMetadataConversion:
     """Test metadata conversion methods."""
@@ -455,6 +513,62 @@ class TestMetadataConversion:
         assert "era" not in metadata
         assert metadata["spoiler_flag"] is False
         assert metadata["content_type"] == "lore"
+
+    def test_chunk_to_metadata_none_values_excluded(self, vector_store):
+        """Test that None values from metadata extractor are excluded.
+
+        The metadata extractor returns faction: None when no faction is detected.
+        ChromaDB rejects None values, so they must be excluded from metadata.
+        This is different from keys being missing - keys exist but have None value.
+        """
+        chunk = WikiChunk(
+            id="chunk-1",
+            wiki_page_id="page-1",
+            article_title="Test Article",
+            section_path="Test Section",
+            chunk_text="Test content",
+            chunk_index=0,
+            metadata_json={
+                "faction": None,  # Explicitly None (from metadata extractor)
+                "era": None,  # Explicitly None
+                "spoiler_flag": None,  # None should default to False
+                "content_type": None,  # None should default to "lore"
+                "article_last_updated": None,  # None should be excluded
+            },
+        )
+
+        metadata = vector_store._chunk_to_metadata(chunk)
+
+        # None values should NOT appear in metadata (ChromaDB rejects them)
+        assert "faction" not in metadata
+        assert "era" not in metadata
+        assert "article_last_updated" not in metadata
+        # Required fields should have defaults when None
+        assert metadata["spoiler_flag"] is False
+        assert metadata["content_type"] == "lore"
+        # No None values allowed in final metadata
+        for key, value in metadata.items():
+            assert value is not None, f"Metadata key '{key}' has None value"
+
+    def test_chunk_to_metadata_with_article_last_updated(self, vector_store):
+        """Test that article_last_updated is included for change detection."""
+        chunk = WikiChunk(
+            id="chunk-1",
+            wiki_page_id="page-1",
+            article_title="Test Article",
+            section_path="Test Section",
+            chunk_text="Test content",
+            chunk_index=0,
+            metadata_json={
+                "spoiler_flag": False,
+                "content_type": "lore",
+                "article_last_updated": "2024-01-15T10:30:00Z",
+            },
+        )
+
+        metadata = vector_store._chunk_to_metadata(chunk)
+
+        assert metadata["article_last_updated"] == "2024-01-15T10:30:00Z"
 
     def test_metadata_to_chunk(self, vector_store):
         """Test converting metadata back to WikiChunk."""
