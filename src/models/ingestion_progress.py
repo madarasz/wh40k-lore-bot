@@ -47,7 +47,7 @@ class IngestionProgress(Base):
     )
 
     # Article identification
-    article_id: Mapped[str] = mapped_column(String(100), index=True, nullable=False)
+    article_id: Mapped[str] = mapped_column(String(100), unique=True, index=True, nullable=False)
 
     # Article version tracking (for change detection)
     article_last_updated: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)

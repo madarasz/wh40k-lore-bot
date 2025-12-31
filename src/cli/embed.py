@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 from tqdm import tqdm
 
 from src.ingestion.embedding_generator import EmbeddingGenerator
+from src.models.wiki_chunk import generate_chunk_id
 
 # Load environment variables from .env file
 load_dotenv()
@@ -103,7 +104,7 @@ def embed(  # noqa: PLR0915
             for chunk, embedding in zip(batch, batch_embeddings, strict=False):
                 if embedding is not None:
                     # Generate deterministic chunk ID
-                    chunk_id = f"{chunk['wiki_page_id']}_{chunk['chunk_index']}"
+                    chunk_id = generate_chunk_id(chunk["wiki_page_id"], chunk["chunk_index"])
 
                     embedding_entry = {
                         "chunk_id": chunk_id,

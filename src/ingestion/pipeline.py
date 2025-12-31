@@ -340,8 +340,6 @@ class IngestionPipeline:
                     chunks = self.chunker.chunk_markdown(article.content, article.title)
                     for chunk in chunks:
                         all_chunks.append((article, chunk))
-                    # Mark as processed
-                    self._processed_wiki_ids.add(article.wiki_id)
                 except Exception as e:
                     self.logger.error(
                         "chunking_failed",
@@ -438,6 +436,10 @@ class IngestionPipeline:
 
             # Update statistics
             self.stats.articles_processed += len(articles_to_process)
+
+            # Mark articles as processed only after successful storage
+            for article in articles_to_process:
+                self._processed_wiki_ids.add(article.wiki_id)
 
             self.logger.info(
                 "batch_processed_successfully",

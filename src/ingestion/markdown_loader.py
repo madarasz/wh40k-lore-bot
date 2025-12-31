@@ -171,23 +171,34 @@ class MarkdownLoader:
         Raises:
             ValueError: If frontmatter is missing or invalid
         """
-        if not content.startswith("---"):
+        # Split into lines, preserving line structure
+        lines = content.split("\n")
+
+        # Check for opening delimiter (handle optional \r from CRLF)
+        if not lines or lines[0].rstrip("\r") != "---":
             raise ValueError("Missing YAML frontmatter (file must start with '---')")
 
-        # Find end of frontmatter
-        end_index = content.find("\n---", 3)
-        if end_index == -1:
+        # Find closing delimiter
+        closing_index = None
+        for i in range(1, len(lines)):
+            if lines[i].rstrip("\r") == "---":
+                closing_index = i
+                break
+
+        if closing_index is None:
             raise ValueError("Invalid YAML frontmatter (missing closing '---')")
 
-        # Extract and parse frontmatter
-        frontmatter_str = content[4:end_index]  # Skip initial "---\n"
+        # Extract frontmatter lines (between delimiters), strip \r from each line
+        frontmatter_lines = [line.rstrip("\r") for line in lines[1:closing_index]]
+        frontmatter_str = "\n".join(frontmatter_lines)
         frontmatter = yaml.safe_load(frontmatter_str)
 
         if not isinstance(frontmatter, dict):
             raise ValueError("YAML frontmatter must be a dictionary")
 
-        # Extract content after frontmatter
-        markdown_content = content[end_index + 4 :].strip()  # Skip "\n---\n"
+        # Extract content after frontmatter, strip \r and join
+        content_lines = [line.rstrip("\r") for line in lines[closing_index + 1 :]]
+        markdown_content = "\n".join(content_lines).strip()
 
         return frontmatter, markdown_content
 

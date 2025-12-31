@@ -111,22 +111,38 @@ class IngestionProgressRepository:
     ) -> IngestionProgress:
         """Mark an article as currently being processed.
 
+        Performs an upsert: updates existing record if found, otherwise creates new.
+
         Args:
             article_id: Wiki page ID
             batch_number: Current batch number
             last_updated: Optional last_updated timestamp from frontmatter
 
         Returns:
-            IngestionProgress record
+            IngestionProgress record (upserted or updated)
         """
-        progress = IngestionProgress(
-            id=str(uuid.uuid4()),
-            article_id=article_id,
-            article_last_updated=last_updated,
-            status=IngestionStatus.PROCESSING.value,
-            batch_number=batch_number,
-        )
-        self.session.add(progress)
+        # Check if record exists for this article_id
+        stmt = select(IngestionProgress).where(IngestionProgress.article_id == article_id)
+        result = await self.session.execute(stmt)
+        progress = result.scalar_one_or_none()
+
+        if progress:
+            # Update existing record
+            progress.status = IngestionStatus.PROCESSING.value
+            progress.article_last_updated = last_updated
+            progress.batch_number = batch_number
+            progress.error_message = None
+        else:
+            # Create new record
+            progress = IngestionProgress(
+                id=str(uuid.uuid4()),
+                article_id=article_id,
+                article_last_updated=last_updated,
+                status=IngestionStatus.PROCESSING.value,
+                batch_number=batch_number,
+            )
+            self.session.add(progress)
+
         await self.session.commit()
         return progress
 
