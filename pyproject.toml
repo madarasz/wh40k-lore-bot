@@ -24,10 +24,12 @@ rank-bm25 = "^0.2.2"
 tiktoken = "^0.5"
 aiosqlite = "^0.22.1"
 greenlet = "^3.3.0"
+click = "^8.3.1"
+tqdm = "^4.67.1"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0"
-ruff = "^0.1"
+ruff = "^0.14"
 mypy = "^1.8"
 pytest-cov = "^4.1"
 pytest-asyncio = "^0.23"
@@ -36,10 +38,18 @@ pytest-mock = "^3.12"
 bandit = "^1.7"
 types-pyyaml = "^6.0.12.20250915"
 lxml-stubs = "^0.5.1"
+types-tqdm = "^4.67.0.20250809"
 
 [tool.poetry.scripts]
+# XML utilities (data preparation)
 parse-wiki = "src.cli.parse_wiki:parse_wiki"
 build-test-bed = "src.cli.build_test_bed:build_test_bed"
+
+# Ingestion commands (markdown-based)
+ingest = "src.cli.ingest:ingest"
+chunk = "src.cli.chunk:chunk"
+embed = "src.cli.embed:embed"
+store = "src.cli.store:store"
 
 [build-system]
 requires = ["poetry-core"]
@@ -54,7 +64,7 @@ select = ["E", "F", "I", "N", "W", "UP", "B", "C4", "PL"]
 ignore = []
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**/*.py" = ["PLR2004"]  # Allow magic values in test assertions
+"tests/**/*.py" = ["PLR2004", "PLC0415"]  # Allow magic values and deferred imports in tests
 
 [tool.ruff.lint.mccabe]
 max-complexity = 10

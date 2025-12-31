@@ -16,6 +16,7 @@ class ChunkMetadata(TypedDict, total=False):
     """Metadata schema for chunk storage in Chroma.
 
     Attributes:
+        wiki_page_id: Wiki page ID for deduplication/updates (required)
         article_title: Title of the source article (required)
         section_path: Hierarchical section path (required)
         chunk_index: Zero-based index of chunk within article (required)
@@ -25,6 +26,7 @@ class ChunkMetadata(TypedDict, total=False):
         content_type: Type of content (e.g., "lore", "rules") (required)
     """
 
+    wiki_page_id: str
     article_title: str
     section_path: str
     chunk_index: int
@@ -310,6 +312,59 @@ class ChromaVectorStore:
             )
             raise VectorStoreError(f"Failed to delete collection: {e}") from e
 
+    def delete_by_wiki_page_id(self, wiki_page_id: str) -> int:
+        """Delete all chunks belonging to a specific wiki page.
+
+        Used for re-ingestion to remove old chunks before adding updated ones.
+
+        Args:
+            wiki_page_id: Wiki page ID to delete chunks for
+
+        Returns:
+            Number of chunks deleted
+
+        Raises:
+            VectorStoreError: If deletion fails
+        """
+        try:
+            # First, count how many chunks exist for this wiki_page_id
+            results = self.collection.get(
+                where={"wiki_page_id": wiki_page_id},
+                include=[],  # Don't need embeddings or documents, just IDs
+            )
+
+            chunk_count = len(results["ids"]) if results["ids"] else 0
+
+            if chunk_count == 0:
+                self.logger.info(
+                    "no_chunks_to_delete",
+                    wiki_page_id=wiki_page_id,
+                )
+                return 0
+
+            # Delete all chunks for this wiki_page_id
+            self.collection.delete(where={"wiki_page_id": wiki_page_id})
+
+            self.logger.info(
+                "chunks_deleted_for_wiki_page",
+                wiki_page_id=wiki_page_id,
+                chunks_deleted=chunk_count,
+            )
+
+            return chunk_count
+
+        except Exception as e:
+            self.logger.error(
+                "delete_by_wiki_page_id_failed",
+                wiki_page_id=wiki_page_id,
+                error=str(e),
+                error_type=type(e).__name__,
+                exc_info=True,
+            )
+            raise VectorStoreError(
+                f"Failed to delete chunks for wiki_page_id {wiki_page_id}: {e}"
+            ) from e
+
     def get_by_id(self, chunk_id: str) -> WikiChunk | None:
         """Get a chunk by its ID.
 
@@ -350,6 +405,57 @@ class ChromaVectorStore:
                 exc_info=True,
             )
             raise VectorStoreError(f"Failed to get chunk by ID: {e}") from e
+
+    def get_article_last_updated(self, wiki_page_id: str) -> str | None:
+        """Get the stored last_updated timestamp for an article.
+
+        Used for change detection during re-ingestion to skip unchanged articles.
+
+        Args:
+            wiki_page_id: Wiki page ID to check
+
+        Returns:
+            ISO timestamp string if article exists, None if not found
+
+        Raises:
+            VectorStoreError: If query fails
+        """
+        try:
+            # Get first chunk for this article (all chunks have same last_updated)
+            results = self.collection.get(
+                where={"wiki_page_id": wiki_page_id},
+                limit=1,
+                include=["metadatas"],
+            )
+
+            if not results["ids"]:
+                self.logger.debug(
+                    "article_not_found_in_vector_store",
+                    wiki_page_id=wiki_page_id,
+                )
+                return None
+
+            metadata = results["metadatas"][0] if results["metadatas"] else {}
+            last_updated = metadata.get("article_last_updated")
+
+            self.logger.debug(
+                "article_last_updated_retrieved",
+                wiki_page_id=wiki_page_id,
+                last_updated=last_updated,
+            )
+            return str(last_updated) if last_updated is not None else None
+
+        except Exception as e:
+            self.logger.error(
+                "get_article_last_updated_failed",
+                wiki_page_id=wiki_page_id,
+                error=str(e),
+                error_type=type(e).__name__,
+                exc_info=True,
+            )
+            raise VectorStoreError(
+                f"Failed to get article last_updated for {wiki_page_id}: {e}"
+            ) from e
 
     def _convert_filters_to_chroma_format(
         self, filters: dict[str, Any] | None
@@ -393,22 +499,36 @@ class ChromaVectorStore:
             chunk: WikiChunk object
 
         Returns:
-            Metadata dictionary for Chroma
+            Metadata dictionary for Chroma (no None values allowed)
         """
+        # Get values with proper None handling (use default if value is None)
+        spoiler_flag = chunk.metadata_json.get("spoiler_flag")
+        content_type = chunk.metadata_json.get("content_type")
+
+        # Get article_last_updated for change detection
+        article_last_updated = chunk.metadata_json.get("article_last_updated")
+
         metadata: dict[str, Any] = {
+            "wiki_page_id": chunk.wiki_page_id,
             "article_title": chunk.article_title,
             "section_path": chunk.section_path,
             "chunk_index": chunk.chunk_index,
-            "spoiler_flag": chunk.metadata_json.get("spoiler_flag", False),
-            "content_type": chunk.metadata_json.get("content_type", "lore"),
+            "spoiler_flag": spoiler_flag if spoiler_flag is not None else False,
+            "content_type": content_type if content_type is not None else "lore",
         }
 
-        # Add optional fields if present
-        if "faction" in chunk.metadata_json:
-            metadata["faction"] = chunk.metadata_json["faction"]
+        # Add article_last_updated for change detection (required for re-ingestion)
+        if article_last_updated is not None:
+            metadata["article_last_updated"] = article_last_updated
 
-        if "era" in chunk.metadata_json:
-            metadata["era"] = chunk.metadata_json["era"]
+        # Add optional fields only if present and not None
+        faction = chunk.metadata_json.get("faction")
+        if faction is not None:
+            metadata["faction"] = faction
+
+        era = chunk.metadata_json.get("era")
+        if era is not None:
+            metadata["era"] = era
 
         return metadata
 
@@ -444,7 +564,7 @@ class ChromaVectorStore:
         # Create WikiChunk
         chunk = WikiChunk(
             id=chunk_id,
-            wiki_page_id="",  # Not stored in Chroma
+            wiki_page_id=metadata.get("wiki_page_id", ""),
             article_title=metadata.get("article_title", ""),
             section_path=metadata.get("section_path", ""),
             chunk_text=document,
