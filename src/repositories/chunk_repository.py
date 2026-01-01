@@ -40,7 +40,7 @@ class ChunkRepository:
         """Retrieve a chunk by its ID.
 
         Args:
-            chunk_id: UUID string of the chunk
+            chunk_id: Chunk ID in format {wiki_page_id}_{chunk_index} (e.g., "58_0")
 
         Returns:
             WikiChunk instance if found, None otherwise
@@ -103,7 +103,7 @@ class ChunkRepository:
         """Delete a chunk by its ID.
 
         Args:
-            chunk_id: UUID string of the chunk to delete
+            chunk_id: Chunk ID in format {wiki_page_id}_{chunk_index} (e.g., "58_0")
 
         Returns:
             True if chunk was deleted, False if not found

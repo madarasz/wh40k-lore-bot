@@ -215,7 +215,7 @@ Create a `.env` file in the project root (see `.env.example`):
 OPENAI_API_KEY=sk-your-api-key-here
 
 # Database Configuration (Optional)
-DATABASE_URL=sqlite:///data/wh40k-lore.db
+DATABASE_URL=sqlite:///data/wh40k_lore_bot.db
 
 # Logging Configuration (Optional)
 LOG_LEVEL=INFO
@@ -322,7 +322,7 @@ poetry run purge-db --force
 rm -rf data/chroma-db/
 
 # Delete SQLite database
-rm data/wh40k-lore.db
+rm data/wh40k_lore_bot.db
 ```
 
 **After resetting, re-run ingestion:**
