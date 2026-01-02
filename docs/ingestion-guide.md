@@ -130,6 +130,17 @@ poetry run ingest --wiki-ids-file data/test-bed-pages.txt
 | `poetry run embed` | Step 2: Generate embeddings from chunks JSON |
 | `poetry run store` | Step 3: Store embeddings in Chroma |
 
+### Database Analysis & Maintenance Commands
+
+| Command | Description |
+|---------|-------------|
+| `poetry run stats-markdown` | Show markdown archive statistics (file counts, word counts) |
+| `poetry run stats-db` | Show vector database statistics (chunk counts, token counts) |
+| `poetry run show-chunk <chunk_id>` | Display full details of a specific chunk |
+| `poetry run delete-chunk <chunk_id>` | Delete a specific chunk from both stores |
+| `poetry run db-health` | Check health and consistency of SQLite and Chroma |
+| `poetry run purge-db` | Delete ALL data from both stores (requires confirmation) |
+
 ### CLI Options (ingest command)
 
 ```bash
@@ -204,7 +215,7 @@ Create a `.env` file in the project root (see `.env.example`):
 OPENAI_API_KEY=sk-your-api-key-here
 
 # Database Configuration (Optional)
-DATABASE_URL=sqlite:///data/wh40k-lore.db
+DATABASE_URL=sqlite:///data/wh40k_lore_bot.db
 
 # Logging Configuration (Optional)
 LOG_LEVEL=INFO
@@ -294,15 +305,36 @@ cat logs/ingestion-summary.json
 
 ### Resetting Database
 
+**Option 1: Use the purge-db command (Recommended)**
+
+```bash
+# Delete all data from both Chroma and SQLite (requires confirmation)
+poetry run purge-db
+
+# Or with --force to skip confirmation
+poetry run purge-db --force
+```
+
+**Option 2: Manual deletion**
+
 ```bash
 # Delete Chroma database (WARNING: Destroys all data)
 rm -rf data/chroma-db/
 
 # Delete SQLite database
-rm data/wh40k-lore.db
+rm data/wh40k_lore_bot.db
+```
 
-# Re-run ingestion from scratch
+**After resetting, re-run ingestion:**
+
+```bash
 poetry run ingest --force
+```
+
+**Verify database health after reset:**
+
+```bash
+poetry run db-health
 ```
 
 ---

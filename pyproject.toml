@@ -51,6 +51,14 @@ chunk = "src.cli.chunk:chunk"
 embed = "src.cli.embed:embed"
 store = "src.cli.store:store"
 
+# Database/Archive analysis tools
+stats-markdown = "src.cli.stats_markdown:stats_markdown"
+stats-db = "src.cli.stats_db:stats_db"
+show-chunk = "src.cli.show_chunk:show_chunk"
+delete-chunk = "src.cli.delete_chunk:delete_chunk"
+db-health = "src.cli.db_health:db_health"
+purge-db = "src.cli.purge_db:purge_db"
+
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"

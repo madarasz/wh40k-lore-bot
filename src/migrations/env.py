@@ -1,15 +1,24 @@
 """Alembic migration environment configuration."""
 
+import os
 from logging.config import fileConfig
 
 from alembic import context
+from dotenv import load_dotenv
 from sqlalchemy import engine_from_config, pool
 
 from src.models import Base
 
+# Load environment variables from .env file
+load_dotenv()
+
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
+
+# Override sqlalchemy.url from environment variable if set
+if database_url := os.getenv("DATABASE_URL"):
+    config.set_main_option("sqlalchemy.url", database_url)
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.

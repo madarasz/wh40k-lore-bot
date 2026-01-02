@@ -140,3 +140,125 @@ poetry run chunk --output data/chunks.json
 poetry run embed data/chunks.json --output data/embeddings.json
 poetry run store data/embeddings.json
 ```
+
+---
+
+## Database Analysis & Maintenance Commands
+
+### stats-markdown
+
+Display markdown archive statistics including file counts, word counts, and median.
+
+```bash
+poetry run stats-markdown [OPTIONS]
+```
+
+**Options:**
+- `--archive-path PATH` - Path to markdown archive directory (default: data/markdown-archive)
+
+**Output includes:**
+- Total .md file count
+- Top 10 smallest files by word count
+- Top 10 largest files by word count
+- Median word count across all files
+
+### stats-db
+
+Display vector database statistics including chunk counts, token counts, and last updated date.
+
+```bash
+poetry run stats-db [OPTIONS]
+```
+
+**Options:**
+- `--chroma-path PATH` - Path to Chroma vector database (default: data/chroma-db/)
+
+**Output includes:**
+- Total chunk count in Chroma
+- Top 10 smallest chunks by token count
+- Top 10 largest chunks by token count
+- Most recent `article_last_updated` date
+
+### show-chunk
+
+Display detailed information about a specific chunk.
+
+```bash
+poetry run show-chunk <chunk_id> [OPTIONS]
+```
+
+**Arguments:**
+- `chunk_id` - The chunk ID to look up (format: {wiki_page_id}_{chunk_index}, e.g., "58_0")
+
+**Options:**
+- `--chroma-path PATH` - Path to Chroma vector database (default: data/chroma-db/)
+
+**Output includes:**
+- Chunk ID, wiki page ID, chunk index
+- Article title and section path
+- Token count (calculated with tiktoken)
+- Full chunk text content
+- All metadata (faction, era, spoiler_flag, content_type, etc.)
+
+### delete-chunk
+
+Delete a specific chunk from both Chroma and SQLite stores.
+
+```bash
+poetry run delete-chunk <chunk_id> [OPTIONS]
+```
+
+**Arguments:**
+- `chunk_id` - The chunk ID to delete (format: {wiki_page_id}_{chunk_index})
+
+**Options:**
+- `--chroma-path PATH` - Path to Chroma vector database (default: data/chroma-db/)
+- `--force` - Skip confirmation prompt
+
+**Examples:**
+```bash
+# Delete with confirmation prompt
+poetry run delete-chunk 58_0
+
+# Delete without confirmation
+poetry run delete-chunk 58_0 --force
+```
+
+### db-health
+
+Check health and consistency of both SQLite and Chroma databases.
+
+```bash
+poetry run db-health [OPTIONS]
+```
+
+**Options:**
+- `--chroma-path PATH` - Path to Chroma vector database (default: data/chroma-db/)
+
+**Output includes:**
+- SQLite connection status and WikiChunk row count
+- Chroma connection status, collection name, and chunk count
+- Consistency check (Chroma count vs SQLite count match)
+
+### purge-db
+
+Delete ALL chunks from both Chroma and SQLite stores.
+
+```bash
+poetry run purge-db [OPTIONS]
+```
+
+**Options:**
+- `--chroma-path PATH` - Path to Chroma vector database (default: data/chroma-db/)
+- `--force` - Skip confirmation prompt (requires typing "DELETE ALL" otherwise)
+
+**Examples:**
+```bash
+# Purge with confirmation (type "DELETE ALL")
+poetry run purge-db
+
+# Purge without confirmation (dangerous!)
+poetry run purge-db --force
+```
+
+**Warning:** This is a destructive operation that cannot be undone!
