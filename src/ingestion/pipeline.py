@@ -15,8 +15,7 @@ from src.ingestion.markdown_loader import MarkdownLoader
 from src.ingestion.metadata_extractor import MetadataExtractor
 from src.ingestion.models import WikiArticle
 from src.ingestion.text_chunker import MarkdownChunker
-from src.models.wiki_chunk import WikiChunk
-from src.rag.vector_store import ChromaVectorStore
+from src.rag.vector_store import ChromaVectorStore, ChunkData, generate_chunk_id
 from src.utils.exceptions import IngestionError
 
 logger = structlog.get_logger(__name__)
@@ -405,28 +404,29 @@ class IngestionPipeline:
 
             self.stats.embeddings_generated += len(valid_chunks_with_embeddings)
 
-            # Step 6: Convert to WikiChunk objects and store in vector DB
-            wiki_chunks = []
+            # Step 6: Convert to ChunkData dicts and store in vector DB
+            chunk_data_list = []
             valid_embeddings = []
             for article, chunk, embedding in valid_chunks_with_embeddings:
                 # Merge extracted metadata with article_last_updated for change detection
                 chunk_metadata = getattr(chunk, "metadata", {})
                 chunk_metadata["article_last_updated"] = article.last_updated
 
-                wiki_chunk = WikiChunk(
-                    wiki_page_id=article.wiki_id,
-                    article_title=article.title,
-                    section_path=chunk.section_path,
-                    chunk_text=chunk.chunk_text,
-                    chunk_index=chunk.chunk_index,
-                    metadata_json=chunk_metadata,
-                )
-                wiki_chunks.append(wiki_chunk)
+                chunk_data: ChunkData = {
+                    "id": generate_chunk_id(article.wiki_id, chunk.chunk_index),
+                    "wiki_page_id": article.wiki_id,
+                    "article_title": article.title,
+                    "section_path": chunk.section_path,
+                    "chunk_text": chunk.chunk_text,
+                    "chunk_index": chunk.chunk_index,
+                    "metadata": chunk_metadata,
+                }
+                chunk_data_list.append(chunk_data)
                 valid_embeddings.append(embedding)
 
             # Store in Chroma
             try:
-                self.vector_store.add_chunks(wiki_chunks, valid_embeddings)
+                self.vector_store.add_chunks(chunk_data_list, valid_embeddings)
             except Exception as e:
                 self.logger.error(
                     "vector_store_add_failed",

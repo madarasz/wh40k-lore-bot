@@ -5,8 +5,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-from src.models.wiki_chunk import WikiChunk
-from src.rag.vector_store import ChromaVectorStore
+from src.rag.vector_store import ChromaVectorStore, ChunkData
 from src.utils.exceptions import VectorStoreError
 
 
@@ -38,49 +37,49 @@ def vector_store(mock_chroma_client):
 
 @pytest.fixture
 def sample_chunks():
-    """Create sample WikiChunk objects for testing."""
-    chunks = [
-        WikiChunk(
-            id="chunk-1",
-            wiki_page_id="page-1",
-            article_title="Blood Angels",
-            section_path="History > Founding",
-            chunk_text="The Blood Angels are a Space Marine chapter...",
-            chunk_index=0,
-            metadata_json={
+    """Create sample ChunkData dicts for testing."""
+    chunks: list[ChunkData] = [
+        {
+            "id": "chunk-1",
+            "wiki_page_id": "page-1",
+            "article_title": "Blood Angels",
+            "section_path": "History > Founding",
+            "chunk_text": "The Blood Angels are a Space Marine chapter...",
+            "chunk_index": 0,
+            "metadata": {
                 "faction": "Space Marines",
                 "era": "Great Crusade",
                 "spoiler_flag": False,
                 "content_type": "lore",
             },
-        ),
-        WikiChunk(
-            id="chunk-2",
-            wiki_page_id="page-1",
-            article_title="Blood Angels",
-            section_path="History > Horus Heresy",
-            chunk_text="During the Horus Heresy, Sanguinius...",
-            chunk_index=1,
-            metadata_json={
+        },
+        {
+            "id": "chunk-2",
+            "wiki_page_id": "page-1",
+            "article_title": "Blood Angels",
+            "section_path": "History > Horus Heresy",
+            "chunk_text": "During the Horus Heresy, Sanguinius...",
+            "chunk_index": 1,
+            "metadata": {
                 "faction": "Space Marines",
                 "era": "Horus Heresy",
                 "spoiler_flag": True,
                 "content_type": "lore",
             },
-        ),
-        WikiChunk(
-            id="chunk-3",
-            wiki_page_id="page-2",
-            article_title="Orks",
-            section_path="Overview",
-            chunk_text="Orks are a warlike, crude, and highly aggressive race...",
-            chunk_index=0,
-            metadata_json={
+        },
+        {
+            "id": "chunk-3",
+            "wiki_page_id": "page-2",
+            "article_title": "Orks",
+            "section_path": "Overview",
+            "chunk_text": "Orks are a warlike, crude, and highly aggressive race...",
+            "chunk_index": 0,
+            "metadata": {
                 "faction": "Orks",
                 "spoiler_flag": False,
                 "content_type": "lore",
             },
-        ),
+        },
     ]
     return chunks
 
@@ -173,21 +172,21 @@ class TestAddChunks:
     def test_add_chunks_batching(self, vector_store):
         """Test batch processing for large number of chunks."""
         # Create 2500 chunks (should result in 3 batches of 1000, 1000, 500)
-        chunks = []
+        chunks: list[ChunkData] = []
         embeddings = []
         for i in range(2500):
-            chunk = WikiChunk(
-                id=f"chunk-{i}",
-                wiki_page_id="page-1",
-                article_title="Test Article",
-                section_path="Test Section",
-                chunk_text=f"Test content {i}",
-                chunk_index=i,
-                metadata_json={
+            chunk: ChunkData = {
+                "id": f"chunk-{i}",
+                "wiki_page_id": "page-1",
+                "article_title": "Test Article",
+                "section_path": "Test Section",
+                "chunk_text": f"Test content {i}",
+                "chunk_index": i,
+                "metadata": {
                     "spoiler_flag": False,
                     "content_type": "lore",
                 },
-            )
+            }
             chunks.append(chunk)
             embeddings.append(np.random.rand(1536).astype(np.float32))
 
@@ -204,19 +203,19 @@ class TestAddChunks:
 
     def test_add_chunks_optional_metadata(self, vector_store):
         """Test adding chunks with optional metadata fields missing."""
-        chunk = WikiChunk(
-            id="chunk-1",
-            wiki_page_id="page-1",
-            article_title="Test Article",
-            section_path="Test Section",
-            chunk_text="Test content",
-            chunk_index=0,
-            metadata_json={
+        chunk: ChunkData = {
+            "id": "chunk-1",
+            "wiki_page_id": "page-1",
+            "article_title": "Test Article",
+            "section_path": "Test Section",
+            "chunk_text": "Test content",
+            "chunk_index": 0,
+            "metadata": {
                 "spoiler_flag": False,
                 "content_type": "lore",
                 # faction and era are optional and missing
             },
-        )
+        }
         embedding = np.random.rand(1536).astype(np.float32)
 
         vector_store.add_chunks([chunk], [embedding])
@@ -275,12 +274,12 @@ class TestQuery:
         chunk1, score1 = results[0]
         chunk2, score2 = results[1]
 
-        assert chunk1.id == "chunk-1"
-        assert chunk1.article_title == "Blood Angels"
+        assert chunk1["id"] == "chunk-1"
+        assert chunk1["article_title"] == "Blood Angels"
         assert score1 == 0.15
 
-        assert chunk2.id == "chunk-2"
-        assert chunk2.article_title == "Orks"
+        assert chunk2["id"] == "chunk-2"
+        assert chunk2["article_title"] == "Orks"
         assert score2 == 0.23
 
     def test_query_with_filters(self, vector_store):
@@ -380,9 +379,9 @@ class TestUtilityMethods:
         chunk = vector_store.get_by_id("chunk-1")
 
         assert chunk is not None
-        assert chunk.id == "chunk-1"
-        assert chunk.article_title == "Blood Angels"
-        assert chunk.metadata_json["faction"] == "Space Marines"
+        assert chunk["id"] == "chunk-1"
+        assert chunk["article_title"] == "Blood Angels"
+        assert chunk["metadata"]["faction"] == "Space Marines"
 
     def test_get_by_id_not_found(self, vector_store):
         """Test get by ID when chunk not found."""
@@ -466,21 +465,21 @@ class TestMetadataConversion:
     """Test metadata conversion methods."""
 
     def test_chunk_to_metadata_all_fields(self, vector_store):
-        """Test converting WikiChunk to metadata with all fields."""
-        chunk = WikiChunk(
-            id="chunk-1",
-            wiki_page_id="page-1",
-            article_title="Blood Angels",
-            section_path="History > Founding",
-            chunk_text="Test content",
-            chunk_index=5,
-            metadata_json={
+        """Test converting ChunkData to metadata with all fields."""
+        chunk: ChunkData = {
+            "id": "chunk-1",
+            "wiki_page_id": "page-1",
+            "article_title": "Blood Angels",
+            "section_path": "History > Founding",
+            "chunk_text": "Test content",
+            "chunk_index": 5,
+            "metadata": {
                 "faction": "Space Marines",
                 "era": "Great Crusade",
                 "spoiler_flag": True,
                 "content_type": "lore",
             },
-        )
+        }
 
         metadata = vector_store._chunk_to_metadata(chunk)
 
@@ -493,19 +492,19 @@ class TestMetadataConversion:
         assert metadata["content_type"] == "lore"
 
     def test_chunk_to_metadata_optional_fields_missing(self, vector_store):
-        """Test converting WikiChunk with optional fields missing."""
-        chunk = WikiChunk(
-            id="chunk-1",
-            wiki_page_id="page-1",
-            article_title="Test Article",
-            section_path="Test Section",
-            chunk_text="Test content",
-            chunk_index=0,
-            metadata_json={
+        """Test converting ChunkData with optional fields missing."""
+        chunk: ChunkData = {
+            "id": "chunk-1",
+            "wiki_page_id": "page-1",
+            "article_title": "Test Article",
+            "section_path": "Test Section",
+            "chunk_text": "Test content",
+            "chunk_index": 0,
+            "metadata": {
                 "spoiler_flag": False,
                 "content_type": "lore",
             },
-        )
+        }
 
         metadata = vector_store._chunk_to_metadata(chunk)
 
@@ -521,21 +520,21 @@ class TestMetadataConversion:
         ChromaDB rejects None values, so they must be excluded from metadata.
         This is different from keys being missing - keys exist but have None value.
         """
-        chunk = WikiChunk(
-            id="chunk-1",
-            wiki_page_id="page-1",
-            article_title="Test Article",
-            section_path="Test Section",
-            chunk_text="Test content",
-            chunk_index=0,
-            metadata_json={
+        chunk: ChunkData = {
+            "id": "chunk-1",
+            "wiki_page_id": "page-1",
+            "article_title": "Test Article",
+            "section_path": "Test Section",
+            "chunk_text": "Test content",
+            "chunk_index": 0,
+            "metadata": {
                 "faction": None,  # Explicitly None (from metadata extractor)
                 "era": None,  # Explicitly None
                 "spoiler_flag": None,  # None should default to False
                 "content_type": None,  # None should default to "lore"
                 "article_last_updated": None,  # None should be excluded
             },
-        )
+        }
 
         metadata = vector_store._chunk_to_metadata(chunk)
 
@@ -552,26 +551,26 @@ class TestMetadataConversion:
 
     def test_chunk_to_metadata_with_article_last_updated(self, vector_store):
         """Test that article_last_updated is included for change detection."""
-        chunk = WikiChunk(
-            id="chunk-1",
-            wiki_page_id="page-1",
-            article_title="Test Article",
-            section_path="Test Section",
-            chunk_text="Test content",
-            chunk_index=0,
-            metadata_json={
+        chunk: ChunkData = {
+            "id": "chunk-1",
+            "wiki_page_id": "page-1",
+            "article_title": "Test Article",
+            "section_path": "Test Section",
+            "chunk_text": "Test content",
+            "chunk_index": 0,
+            "metadata": {
                 "spoiler_flag": False,
                 "content_type": "lore",
                 "article_last_updated": "2024-01-15T10:30:00Z",
             },
-        )
+        }
 
         metadata = vector_store._chunk_to_metadata(chunk)
 
         assert metadata["article_last_updated"] == "2024-01-15T10:30:00Z"
 
     def test_metadata_to_chunk(self, vector_store):
-        """Test converting metadata back to WikiChunk."""
+        """Test converting metadata back to ChunkData."""
         metadata = {
             "article_title": "Blood Angels",
             "section_path": "History",
@@ -588,12 +587,12 @@ class TestMetadataConversion:
             document="Test content",
         )
 
-        assert chunk.id == "chunk-1"
-        assert chunk.article_title == "Blood Angels"
-        assert chunk.section_path == "History"
-        assert chunk.chunk_index == 3
-        assert chunk.chunk_text == "Test content"
-        assert chunk.metadata_json["faction"] == "Space Marines"
-        assert chunk.metadata_json["era"] == "Great Crusade"
-        assert chunk.metadata_json["spoiler_flag"] is True
-        assert chunk.metadata_json["content_type"] == "lore"
+        assert chunk["id"] == "chunk-1"
+        assert chunk["article_title"] == "Blood Angels"
+        assert chunk["section_path"] == "History"
+        assert chunk["chunk_index"] == 3
+        assert chunk["chunk_text"] == "Test content"
+        assert chunk["metadata"]["faction"] == "Space Marines"
+        assert chunk["metadata"]["era"] == "Great Crusade"
+        assert chunk["metadata"]["spoiler_flag"] is True
+        assert chunk["metadata"]["content_type"] == "lore"

@@ -10,8 +10,7 @@ import numpy as np
 import structlog
 from tqdm import tqdm
 
-from src.models.wiki_chunk import WikiChunk
-from src.rag.vector_store import ChromaVectorStore
+from src.rag.vector_store import ChromaVectorStore, ChunkData
 
 logger = structlog.get_logger(__name__)
 
@@ -200,26 +199,26 @@ def store(  # noqa: PLR0912, PLR0915
         for i in tqdm(range(0, len(chunks_to_store), batch_size), desc="Batches", unit="batch"):
             batch = chunks_to_store[i : i + batch_size]
 
-            # Convert to WikiChunk objects and numpy arrays
-            wiki_chunks = []
+            # Convert to ChunkData dicts and numpy arrays
+            chunk_data_list: list[ChunkData] = []
             embeddings = []
 
             for entry in batch:
-                wiki_chunk = WikiChunk(
-                    id=entry["chunk_id"],
-                    wiki_page_id=entry["wiki_page_id"],
-                    article_title=entry["article_title"],
-                    section_path=entry["section_path"],
-                    chunk_text=entry["chunk_text"],
-                    chunk_index=entry["chunk_index"],
-                    metadata_json=entry.get("metadata", {}),
-                )
-                wiki_chunks.append(wiki_chunk)
+                chunk_data: ChunkData = {
+                    "id": entry["chunk_id"],
+                    "wiki_page_id": entry["wiki_page_id"],
+                    "article_title": entry["article_title"],
+                    "section_path": entry["section_path"],
+                    "chunk_text": entry["chunk_text"],
+                    "chunk_index": entry["chunk_index"],
+                    "metadata": entry.get("metadata", {}),
+                }
+                chunk_data_list.append(chunk_data)
                 embeddings.append(np.array(entry["embedding"]))
 
             # Store batch
-            vector_store.add_chunks(wiki_chunks, embeddings)
-            total_stored += len(wiki_chunks)
+            vector_store.add_chunks(chunk_data_list, embeddings)
+            total_stored += len(chunk_data_list)
 
     except KeyboardInterrupt:
         click.echo()

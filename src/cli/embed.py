@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 from tqdm import tqdm
 
 from src.ingestion.embedding_generator import EmbeddingGenerator
-from src.models.wiki_chunk import generate_chunk_id
+from src.rag.vector_store import generate_chunk_id
 
 # Load environment variables from .env file
 load_dotenv()
