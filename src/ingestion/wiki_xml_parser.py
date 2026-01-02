@@ -1,5 +1,6 @@
 """Wiki XML parser for processing MediaWiki XML exports."""
 
+import html
 import re
 from collections.abc import Iterator
 from pathlib import Path
@@ -30,6 +31,96 @@ class WikiXMLParser:
         self.articles_processed = 0
         self.articles_skipped = 0
 
+        # Redirect handling
+        self.redirect_map: dict[str, str] = {}
+        self.redirects_found = 0
+        self.redirects_skipped = 0
+        self.links_resolved = 0
+
+    def build_redirect_map(self, xml_path: str | Path) -> dict[str, str]:
+        """Build mapping of redirect sources to targets from XML export.
+
+        This method performs the first pass of two-pass processing, extracting
+        all redirect mappings before article processing begins.
+
+        Args:
+            xml_path: Path to the XML export file
+
+        Returns:
+            Dictionary mapping redirect source titles to target titles
+
+        Raises:
+            FileNotFoundError: If XML file doesn't exist
+            etree.XMLSyntaxError: If XML is malformed
+        """
+        xml_path = Path(xml_path)
+        if not xml_path.exists():
+            raise FileNotFoundError(f"XML file not found: {xml_path}")
+
+        self.logger.info("building_redirect_map", path=str(xml_path))
+
+        redirect_map: dict[str, str] = {}
+
+        # Use iterparse for memory-efficient streaming
+        context = etree.iterparse(
+            str(xml_path),
+            events=("end",),
+            tag=f"{NS}page",
+        )
+
+        try:
+            for _, elem in context:
+                try:
+                    # Only process main namespace (ns=0)
+                    ns_elem = elem.find(f"{NS}ns")
+                    if ns_elem is None or ns_elem.text != "0":
+                        elem.clear()
+                        continue
+
+                    # Check for redirect element
+                    redirect_elem = elem.find(f"{NS}redirect")
+                    if redirect_elem is None:
+                        elem.clear()
+                        continue
+
+                    # Extract source title
+                    title_elem = elem.find(f"{NS}title")
+                    if title_elem is None or title_elem.text is None:
+                        elem.clear()
+                        continue
+
+                    source_title = title_elem.text.strip()
+
+                    # Extract target title from redirect element
+                    target_title = redirect_elem.get("title")
+                    if target_title is None:
+                        elem.clear()
+                        continue
+
+                    # Decode HTML entities in target title
+                    target_title = html.unescape(target_title)
+
+                    # Add to redirect map
+                    redirect_map[source_title] = target_title
+
+                except Exception as e:
+                    self.logger.error("redirect_extraction_error", error=str(e))
+                finally:
+                    # Always clear element to free memory
+                    elem.clear()
+
+        finally:
+            # Store redirect map and statistics
+            self.redirect_map = redirect_map
+            self.redirects_found = len(redirect_map)
+
+            self.logger.info(
+                "redirect_map_built",
+                redirects_found=self.redirects_found,
+            )
+
+        return redirect_map
+
     def parse_xml_export(
         self,
         xml_path: str | Path,
@@ -37,8 +128,15 @@ class WikiXMLParser:
     ) -> Iterator[WikiArticle]:
         """Parse MediaWiki XML export and yield WikiArticle objects.
 
+        Uses two-pass processing:
+        1. First pass: Build redirect map (automatically handled)
+        2. Second pass: Process articles with redirect handling
+
         Uses iterparse for memory-efficient streaming of large XML files.
         Only processes pages in the main namespace (ns=0).
+        Redirect pages are automatically skipped during article processing.
+        Internal links pointing to redirect sources are automatically resolved
+        to their canonical targets.
 
         Security: Uses lxml.etree with default safe parsing settings.
         lxml protects against XML bomb attacks by default (no DTD processing,
@@ -49,7 +147,7 @@ class WikiXMLParser:
             page_ids: Optional list of page IDs to filter (only process these pages)
 
         Yields:
-            WikiArticle objects for each parsed page
+            WikiArticle objects for each parsed page (redirects excluded)
 
         Raises:
             FileNotFoundError: If XML file doesn't exist
@@ -60,6 +158,9 @@ class WikiXMLParser:
             raise FileNotFoundError(f"XML file not found: {xml_path}")
 
         self.logger.info("parsing_xml_export", path=str(xml_path), page_ids_filter=bool(page_ids))
+
+        # First pass: Build redirect map
+        self.build_redirect_map(xml_path)
 
         # Convert page_ids to set for O(1) lookup
         page_id_set = set(page_ids) if page_ids else None
@@ -102,6 +203,9 @@ class WikiXMLParser:
                 "parsing_complete",
                 total_processed=self.articles_processed,
                 total_skipped=self.articles_skipped,
+                redirects_found=self.redirects_found,
+                redirects_skipped=self.redirects_skipped,
+                links_resolved=self.links_resolved,
             )
 
     def _process_page_element(
@@ -127,8 +231,8 @@ class WikiXMLParser:
         if page_id_set and page_id not in page_id_set:
             return None
 
-        # Convert wikitext to markdown
-        markdown_content = self._convert_wikitext_to_markdown(wikitext)
+        # Convert wikitext to markdown (with redirect resolution)
+        markdown_content = self._convert_wikitext_to_markdown(wikitext, self.redirect_map)
 
         # Calculate word count
         word_count = len(markdown_content.split())
@@ -142,7 +246,9 @@ class WikiXMLParser:
             word_count=word_count,
         )
 
-    def _extract_page_data(self, elem: etree._Element) -> tuple[str, str, str, str] | None:
+    def _extract_page_data(  # noqa: PLR0911
+        self, elem: etree._Element
+    ) -> tuple[str, str, str, str] | None:
         """Extract page data from XML element.
 
         Args:
@@ -154,6 +260,13 @@ class WikiXMLParser:
         # Extract namespace - only process main articles (ns=0)
         ns_elem = elem.find(f"{NS}ns")
         if ns_elem is None or ns_elem.text != "0":
+            return None
+
+        # Skip redirect pages
+        redirect_elem = elem.find(f"{NS}redirect")
+        if redirect_elem is not None:
+            self.redirects_skipped += 1
+            self.logger.debug("skipping_redirect_page")
             return None
 
         # Extract page ID
@@ -194,11 +307,14 @@ class WikiXMLParser:
 
         return page_id, title, timestamp, wikitext
 
-    def _convert_wikitext_to_markdown(self, wikitext: str) -> str:
+    def _convert_wikitext_to_markdown(
+        self, wikitext: str, redirect_map: dict[str, str] | None = None
+    ) -> str:
         """Convert MediaWiki markup to Markdown.
 
         Args:
             wikitext: Raw MediaWiki markup text
+            redirect_map: Optional mapping of redirect sources to targets for link resolution
 
         Returns:
             Markdown-formatted text
@@ -217,8 +333,8 @@ class WikiXMLParser:
             # Re-parse after removals
             parsed = mwparserfromhell.parse(text)
 
-            # Convert wiki elements to markdown
-            text = self._convert_wiki_elements(parsed, text)
+            # Convert wiki elements to markdown (with redirect resolution)
+            text = self._convert_wiki_elements(parsed, text, redirect_map)
 
             # Apply regex-based cleanup
             text = self._apply_regex_cleanup(text)
@@ -253,12 +369,18 @@ class WikiXMLParser:
 
         return text
 
-    def _convert_wiki_elements(self, parsed: mwparserfromhell.wikicode.Wikicode, text: str) -> str:
+    def _convert_wiki_elements(
+        self,
+        parsed: mwparserfromhell.wikicode.Wikicode,
+        text: str,
+        redirect_map: dict[str, str] | None = None,
+    ) -> str:
         """Convert wiki elements (headings, links, formatting) to markdown.
 
         Args:
             parsed: Parsed wikicode object
             text: Current text to modify
+            redirect_map: Optional mapping of redirect sources to targets for link resolution
 
         Returns:
             Modified text with wiki elements converted to markdown
@@ -272,10 +394,21 @@ class WikiXMLParser:
 
         # Convert wikilinks [[Link]] and [[Link|Display]]
         for wikilink in parsed.filter_wikilinks():
-            link_title = str(wikilink.title)
+            link_title = str(wikilink.title).strip()
             # Skip already-removed File/Image/Category links
             if link_title.startswith(("File:", "Image:", "Category:")):
                 continue
+
+            # Resolve redirect if applicable
+            if redirect_map and link_title in redirect_map:
+                resolved_title = redirect_map[link_title]
+                self.logger.debug(
+                    "resolved_redirect_link",
+                    original=link_title,
+                    resolved=resolved_title,
+                )
+                self.links_resolved += 1
+                link_title = resolved_title
 
             if wikilink.text:
                 display_text = str(wikilink.text)
