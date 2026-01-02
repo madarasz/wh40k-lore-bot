@@ -265,3 +265,97 @@ class TestPageIDFileFiltering:
         titles = [article.title for article in articles]
         assert "Blood Angels" in titles
         assert "Imperium" in titles
+
+
+class TestRedirectHandlingIntegration:
+    """Integration tests for end-to-end redirect handling."""
+
+    def test_end_to_end_redirect_handling(self, tmp_path: Path) -> None:
+        """Test complete redirect handling pipeline with redirects and link resolution."""
+        # Create sample XML with redirects and articles that link to them
+        xml_content = """<?xml version="1.0" encoding="UTF-8"?>
+<mediawiki xmlns="http://www.mediawiki.org/xml/export-0.11/">
+  <page>
+    <title>Redirect Source</title>
+    <ns>0</ns>
+    <id>1</id>
+    <redirect title="Target Article" />
+    <revision>
+      <timestamp>2024-01-01T00:00:00Z</timestamp>
+      <text>#REDIRECT [[Target Article]]</text>
+    </revision>
+  </page>
+  <page>
+    <title>Mankind</title>
+    <ns>0</ns>
+    <id>2</id>
+    <redirect title="Humans" />
+    <revision>
+      <timestamp>2024-01-01T00:00:00Z</timestamp>
+      <text>#REDIRECT [[Humans]]</text>
+    </revision>
+  </page>
+  <page>
+    <title>Article With Links</title>
+    <ns>0</ns>
+    <id>3</id>
+    <revision>
+      <timestamp>2024-01-01T00:00:00Z</timestamp>
+      <text>==Overview==
+See [[Redirect Source]] for more info.
+The [[Mankind|human race]] is vast.
+Normal link to [[Target Article]] works too.</text>
+    </revision>
+  </page>
+  <page>
+    <title>Target Article</title>
+    <ns>0</ns>
+    <id>4</id>
+    <revision>
+      <timestamp>2024-01-01T00:00:00Z</timestamp>
+      <text>This is the canonical article.</text>
+    </revision>
+  </page>
+  <page>
+    <title>Humans</title>
+    <ns>0</ns>
+    <id>5</id>
+    <revision>
+      <timestamp>2024-01-01T00:00:00Z</timestamp>
+      <text>Human article content.</text>
+    </revision>
+  </page>
+</mediawiki>"""
+
+        xml_file = tmp_path / "redirect_test.xml"
+        xml_file.write_text(xml_content, encoding="utf-8")
+
+        parser = WikiXMLParser()
+        articles = list(parser.parse_xml_export(xml_file))
+
+        # Verify redirect pages are skipped
+        titles = [article.title for article in articles]
+        assert "Redirect Source" not in titles  # Redirect should be skipped
+        assert "Mankind" not in titles  # Redirect should be skipped
+        assert "Article With Links" in titles
+        assert "Target Article" in titles
+        assert "Humans" in titles
+
+        # Should have 3 articles (2 redirects skipped)
+        assert len(articles) == 3
+        assert parser.redirects_found == 2
+        assert parser.redirects_skipped == 2
+
+        # Verify links in "Article With Links" are resolved
+        article_with_links = next(a for a in articles if a.title == "Article With Links")
+
+        # Link to "Redirect Source" should be resolved to "Target Article"
+        assert "[Target Article](Target Article)" in article_with_links.content
+        assert "[Redirect Source]" not in article_with_links.content
+
+        # Link with display text should preserve display text but resolve target
+        assert "[human race](Humans)" in article_with_links.content
+        assert "[Mankind]" not in article_with_links.content
+
+        # Links resolved count should be tracked
+        assert parser.links_resolved >= 2

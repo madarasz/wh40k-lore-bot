@@ -22,6 +22,13 @@ poetry run build-test-bed <xml_path> [OPTIONS]
 
 Parse MediaWiki XML exports and convert articles to markdown archive.
 
+Uses two-pass processing to automatically handle wiki redirects:
+1. **First pass**: Builds a map of all redirect pages (source → target)
+2. **Second pass**: Processes articles with automatic redirect handling
+   - Redirect pages are automatically skipped (not saved to archive)
+   - Internal links pointing to redirect sources are automatically resolved to their canonical targets
+   - HTML entities in redirect targets (e.g., `&#039;` → `'`) are properly decoded
+
 ```bash
 poetry run parse-wiki <xml_path> [--page-ids-file PATH]
 ```
@@ -31,6 +38,13 @@ poetry run parse-wiki <xml_path> [--page-ids-file PATH]
 
 **Options:**
 - `--page-ids-file PATH` - File containing page IDs to filter (one per line)
+
+**Redirect Handling:**
+- Redirect pages are automatically detected and excluded from processing
+- Links in article content are automatically updated to point to canonical targets
+- Example: A link to `[[Mankind]]` is automatically converted to `[[Humans]]` if "Mankind" redirects to "Humans"
+- Display text in links is preserved: `[[Mankind|humanity]]` becomes `[[Humans|humanity]]`
+- Statistics are logged: redirects found, redirects skipped, links resolved
 
 ---
 

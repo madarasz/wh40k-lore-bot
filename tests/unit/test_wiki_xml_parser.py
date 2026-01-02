@@ -1,5 +1,8 @@
 """Unit tests for WikiXMLParser MediaWiki to Markdown conversion."""
 
+from pathlib import Path
+from tempfile import NamedTemporaryFile
+
 import pytest
 
 from src.ingestion.wiki_xml_parser import WikiXMLParser
@@ -195,3 +198,160 @@ class TestInternalLinkExtraction:
         wikitext = "Just plain text with no links."
         links = parser.extract_internal_links(wikitext)
         assert links == []
+
+
+class TestRedirectHandling:
+    """Test redirect detection, mapping, and link resolution."""
+
+    def test_build_redirect_map_extracts_redirects(self, parser: WikiXMLParser) -> None:
+        """Test that build_redirect_map correctly extracts redirect mappings."""
+        xml_content = """<?xml version="1.0"?>
+<mediawiki xmlns="http://www.mediawiki.org/xml/export-0.11/">
+  <page>
+    <title>Mankind</title>
+    <ns>0</ns>
+    <id>1</id>
+    <redirect title="Humans" />
+    <revision><text>#REDIRECT [[Humans]]</text></revision>
+  </page>
+  <page>
+    <title>Astartes</title>
+    <ns>0</ns>
+    <id>2</id>
+    <redirect title="Space Marines" />
+    <revision><text>#REDIRECT [[Space Marines]]</text></revision>
+  </page>
+</mediawiki>"""
+        with NamedTemporaryFile(mode="w", suffix=".xml", delete=False) as f:
+            f.write(xml_content)
+            temp_path = Path(f.name)
+
+        try:
+            redirect_map = parser.build_redirect_map(temp_path)
+            assert redirect_map["Mankind"] == "Humans"
+            assert redirect_map["Astartes"] == "Space Marines"
+            assert len(redirect_map) == 2
+            assert parser.redirects_found == 2
+        finally:
+            temp_path.unlink()
+
+    def test_build_redirect_map_decodes_html_entities(self, parser: WikiXMLParser) -> None:
+        """Test that HTML entities in redirect targets are properly decoded."""
+        xml_content = """<?xml version="1.0"?>
+<mediawiki xmlns="http://www.mediawiki.org/xml/export-0.11/">
+  <page>
+    <title>Tau</title>
+    <ns>0</ns>
+    <id>1</id>
+    <redirect title="T&#039;au Empire" />
+    <revision><text>#REDIRECT [[T'au Empire]]</text></revision>
+  </page>
+</mediawiki>"""
+        with NamedTemporaryFile(mode="w", suffix=".xml", delete=False) as f:
+            f.write(xml_content)
+            temp_path = Path(f.name)
+
+        try:
+            redirect_map = parser.build_redirect_map(temp_path)
+            assert redirect_map["Tau"] == "T'au Empire"
+            assert "&#039;" not in redirect_map["Tau"]
+        finally:
+            temp_path.unlink()
+
+    def test_redirect_pages_are_skipped(self, parser: WikiXMLParser) -> None:
+        """Test that redirect pages are skipped during article processing."""
+        xml_content = """<?xml version="1.0"?>
+<mediawiki xmlns="http://www.mediawiki.org/xml/export-0.11/">
+  <page>
+    <title>Mankind</title>
+    <ns>0</ns>
+    <id>1</id>
+    <redirect title="Humans" />
+    <revision>
+      <timestamp>2024-01-01T00:00:00Z</timestamp>
+      <text>#REDIRECT [[Humans]]</text>
+    </revision>
+  </page>
+  <page>
+    <title>Humans</title>
+    <ns>0</ns>
+    <id>2</id>
+    <revision>
+      <timestamp>2024-01-01T00:00:00Z</timestamp>
+      <text>Human article content.</text>
+    </revision>
+  </page>
+</mediawiki>"""
+        with NamedTemporaryFile(mode="w", suffix=".xml", delete=False) as f:
+            f.write(xml_content)
+            temp_path = Path(f.name)
+
+        try:
+            articles = list(parser.parse_xml_export(temp_path))
+            # Should only get the Humans article, not the Mankind redirect
+            assert len(articles) == 1
+            assert articles[0].title == "Humans"
+            assert parser.redirects_skipped == 1
+        finally:
+            temp_path.unlink()
+
+    def test_link_resolution_replaces_redirect_sources(self, parser: WikiXMLParser) -> None:
+        """Test that links to redirect sources are resolved to targets."""
+        redirect_map = {"Mankind": "Humans", "Astartes": "Space Marines"}
+        wikitext = "See [[Mankind]] and [[Astartes]] for more info."
+        result = parser._convert_wikitext_to_markdown(wikitext, redirect_map)
+        assert "[Humans](Humans)" in result
+        assert "[Space Marines](Space Marines)" in result
+        assert "Mankind" not in result
+        assert "Astartes" not in result
+
+    def test_link_resolution_preserves_display_text(self, parser: WikiXMLParser) -> None:
+        """Test that display text is preserved when resolving redirects."""
+        redirect_map = {"Mankind": "Humans"}
+        wikitext = "See [[Mankind|humanity]] for details."
+        result = parser._convert_wikitext_to_markdown(wikitext, redirect_map)
+        # Display text "humanity" should be preserved, but link target should be "Humans"
+        assert "[humanity](Humans)" in result
+        assert "Mankind" not in result
+
+    def test_non_redirect_links_unchanged(self, parser: WikiXMLParser) -> None:
+        """Test that links not in redirect map are unchanged."""
+        redirect_map = {"Mankind": "Humans"}
+        wikitext = "See [[Imperium]] and [[Space Marines]]."
+        result = parser._convert_wikitext_to_markdown(wikitext, redirect_map)
+        assert "[Imperium](Imperium)" in result
+        assert "[Space Marines](Space Marines)" in result
+
+    def test_empty_redirect_map(self, parser: WikiXMLParser) -> None:
+        """Test handling of empty redirect map (no redirects in XML)."""
+        xml_content = """<?xml version="1.0"?>
+<mediawiki xmlns="http://www.mediawiki.org/xml/export-0.11/">
+  <page>
+    <title>Imperium</title>
+    <ns>0</ns>
+    <id>1</id>
+    <revision>
+      <timestamp>2024-01-01T00:00:00Z</timestamp>
+      <text>Article content.</text>
+    </revision>
+  </page>
+</mediawiki>"""
+        with NamedTemporaryFile(mode="w", suffix=".xml", delete=False) as f:
+            f.write(xml_content)
+            temp_path = Path(f.name)
+
+        try:
+            redirect_map = parser.build_redirect_map(temp_path)
+            assert len(redirect_map) == 0
+            assert parser.redirects_found == 0
+        finally:
+            temp_path.unlink()
+
+    def test_redirect_to_nonexistent_article(self, parser: WikiXMLParser) -> None:
+        """Test that redirect resolution works even if target doesn't exist in XML."""
+        redirect_map = {"OldName": "NewName"}
+        wikitext = "See [[OldName]] for info."
+        result = parser._convert_wikitext_to_markdown(wikitext, redirect_map)
+        # Should still resolve to NewName even if NewName doesn't exist as an article
+        assert "[NewName](NewName)" in result
+        assert "OldName" not in result
