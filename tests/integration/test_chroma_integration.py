@@ -8,8 +8,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from src.models.wiki_chunk import WikiChunk
-from src.rag.vector_store import ChromaVectorStore
+from src.rag.vector_store import ChromaVectorStore, ChunkData
 
 # Test storage path
 TEST_STORAGE_PATH = "test-data/chroma-integration/"
@@ -44,29 +43,30 @@ def vector_store():
 @pytest.fixture
 def test_chunks():
     """Create 100 test chunks with various metadata."""
-    chunks = []
+    chunks: list[ChunkData] = []
     factions = ["Space Marines", "Orks", "Eldar", "Chaos", "Tyranids"]
     eras = ["Great Crusade", "Horus Heresy", "War of the Beast", "Age of Apostasy", "Current"]
     content_types = ["lore", "tactics", "units"]
 
     for i in range(100):
-        chunk = WikiChunk(
-            id=f"test-chunk-{i}",
-            wiki_page_id=f"page-{i % 10}",
-            article_title=f"Article {i % 20}",
-            section_path=f"Section {i % 5} > Subsection {i % 3}",
-            chunk_text=f"This is test chunk {i} with various content about Warhammer 40k lore.",
-            chunk_index=i % 10,
-            metadata_json={
-                "faction": factions[i % len(factions)],
-                "era": eras[i % len(eras)] if i % 3 != 0 else None,  # Some without era
-                "spoiler_flag": i % 4 == 0,  # Every 4th chunk is a spoiler
-                "content_type": content_types[i % len(content_types)],
-            },
-        )
-        # Remove era if None
-        if chunk.metadata_json["era"] is None:
-            del chunk.metadata_json["era"]
+        metadata = {
+            "faction": factions[i % len(factions)],
+            "spoiler_flag": i % 4 == 0,  # Every 4th chunk is a spoiler
+            "content_type": content_types[i % len(content_types)],
+        }
+        # Add era only if not None
+        if i % 3 != 0:
+            metadata["era"] = eras[i % len(eras)]
+
+        chunk: ChunkData = {
+            "id": f"test-chunk-{i}",
+            "wiki_page_id": f"page-{i % 10}",
+            "article_title": f"Article {i % 20}",
+            "section_path": f"Section {i % 5} > Subsection {i % 3}",
+            "chunk_text": f"This is test chunk {i} with various content about Warhammer 40k lore.",
+            "chunk_index": i % 10,
+            "metadata": metadata,
+        }
         chunks.append(chunk)
 
     return chunks
@@ -120,12 +120,12 @@ class TestChromaIntegration:
 
         # First result should be the exact match (chunk 0)
         chunk, distance = results[0]
-        assert chunk.id == "test-chunk-0"
+        assert chunk["id"] == "test-chunk-0"
         assert distance < 0.01  # Very close to 0 for exact match
 
-        # All results should have WikiChunk objects and distance scores
+        # All results should have ChunkData dicts and distance scores
         for chunk, distance in results:
-            assert isinstance(chunk, WikiChunk)
+            assert isinstance(chunk, dict)
             assert isinstance(distance, float)
             # Valid distance range for cosine (allow tiny negative due to float precision)
             assert -0.001 <= distance <= 2
@@ -149,7 +149,7 @@ class TestChromaIntegration:
 
         # All results should be Space Marines
         for chunk, _distance in results:
-            assert chunk.metadata_json["faction"] == "Space Marines"
+            assert chunk["metadata"]["faction"] == "Space Marines"
 
     def test_query_with_era_filter(self, vector_store, test_chunks, test_embeddings):
         """Test query with era filter."""
@@ -169,7 +169,7 @@ class TestChromaIntegration:
 
         # All results should be from Horus Heresy era
         for chunk, _distance in results:
-            assert chunk.metadata_json.get("era") == "Horus Heresy"
+            assert chunk["metadata"].get("era") == "Horus Heresy"
 
     def test_query_with_spoiler_filter(self, vector_store, test_chunks, test_embeddings):
         """Test query excluding spoilers."""
@@ -189,7 +189,7 @@ class TestChromaIntegration:
 
         # All results should not be spoilers
         for chunk, _distance in results:
-            assert chunk.metadata_json["spoiler_flag"] is False
+            assert chunk["metadata"]["spoiler_flag"] is False
 
     def test_query_with_compound_filters(self, vector_store, test_chunks, test_embeddings):
         """Test query with multiple filters (AND logic)."""
@@ -212,8 +212,8 @@ class TestChromaIntegration:
 
         # All results should match all filters
         for chunk, _distance in results:
-            assert chunk.metadata_json["faction"] == "Space Marines"
-            assert chunk.metadata_json["spoiler_flag"] is False
+            assert chunk["metadata"]["faction"] == "Space Marines"
+            assert chunk["metadata"]["spoiler_flag"] is False
 
     def test_get_by_id(self, vector_store, test_chunks, test_embeddings):
         """Test retrieving chunk by ID."""
@@ -224,9 +224,9 @@ class TestChromaIntegration:
         chunk = vector_store.get_by_id("test-chunk-42")
 
         assert chunk is not None
-        assert chunk.id == "test-chunk-42"
-        assert chunk.article_title == "Article 2"  # 42 % 20 = 2
-        assert chunk.chunk_text.startswith("This is test chunk 42")
+        assert chunk["id"] == "test-chunk-42"
+        assert chunk["article_title"] == "Article 2"  # 42 % 20 = 2
+        assert chunk["chunk_text"].startswith("This is test chunk 42")
 
     def test_get_by_id_nonexistent(self, vector_store, test_chunks, test_embeddings):
         """Test retrieving nonexistent chunk."""
@@ -299,21 +299,21 @@ class TestChromaIntegration:
     def test_batch_insertion(self, vector_store):
         """Test insertion of >1000 chunks (multiple batches)."""
         # Create 2500 chunks
-        chunks = []
+        chunks: list[ChunkData] = []
         embeddings = []
         for i in range(2500):
-            chunk = WikiChunk(
-                id=f"batch-chunk-{i}",
-                wiki_page_id="page-1",
-                article_title="Batch Test",
-                section_path="Test",
-                chunk_text=f"Batch chunk {i}",
-                chunk_index=i,
-                metadata_json={
+            chunk: ChunkData = {
+                "id": f"batch-chunk-{i}",
+                "wiki_page_id": "page-1",
+                "article_title": "Batch Test",
+                "section_path": "Test",
+                "chunk_text": f"Batch chunk {i}",
+                "chunk_index": i,
+                "metadata": {
                     "spoiler_flag": False,
                     "content_type": "lore",
                 },
-            )
+            }
             chunks.append(chunk)
             embeddings.append(np.random.rand(1536).astype(np.float32))
 
@@ -353,16 +353,16 @@ class TestChromaIntegration:
         chunk = vector_store.get_by_id("test-chunk-0")
 
         assert chunk is not None
-        assert chunk.metadata_json["faction"] == "Space Marines"
-        assert chunk.metadata_json["spoiler_flag"] is True  # chunk 0: 0 % 4 == 0
-        assert chunk.metadata_json["content_type"] == "lore"
+        assert chunk["metadata"]["faction"] == "Space Marines"
+        assert chunk["metadata"]["spoiler_flag"] is True  # chunk 0: 0 % 4 == 0
+        assert chunk["metadata"]["content_type"] == "lore"
 
         # Get chunk with optional era field
         chunk_with_era = vector_store.get_by_id("test-chunk-1")
         assert chunk_with_era is not None
-        assert "era" in chunk_with_era.metadata_json
+        assert "era" in chunk_with_era["metadata"]
 
         # Get chunk without era field (index divisible by 3)
         chunk_no_era = vector_store.get_by_id("test-chunk-3")
         assert chunk_no_era is not None
-        assert "era" not in chunk_no_era.metadata_json
+        assert "era" not in chunk_no_era["metadata"]

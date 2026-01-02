@@ -1,23 +1,19 @@
-"""CLI command for purging all data from both stores."""
+"""CLI command for purging all data from ChromaDB."""
 
-import os
 from pathlib import Path
 
 import click
 import structlog
 from dotenv import load_dotenv
-from sqlalchemy import create_engine, delete, func, select
-from sqlalchemy.engine import Engine
 
-from src.models.wiki_chunk import WikiChunk
 from src.rag.vector_store import ChromaVectorStore
 
 load_dotenv()
 logger = structlog.get_logger(__name__)
 
 
-def _get_counts(chroma_path: Path) -> tuple[ChromaVectorStore | None, int, Engine | None, int]:
-    """Get current counts from both stores."""
+def _get_counts(chroma_path: Path) -> tuple[ChromaVectorStore | None, int]:
+    """Get current counts from ChromaDB."""
     click.echo("-" * 80)
     click.echo("Current Data Counts")
     click.echo("-" * 80)
@@ -27,26 +23,11 @@ def _get_counts(chroma_path: Path) -> tuple[ChromaVectorStore | None, int, Engin
     try:
         vector_store = ChromaVectorStore(storage_path=str(chroma_path))
         chroma_count = vector_store.count()
-        click.echo(f"  Chroma Chunks: {chroma_count:,}")
+        click.echo(f"  ChromaDB Chunks: {chroma_count:,}")
     except Exception as e:
-        click.echo(f"  Chroma: ERROR ({e})")
+        click.echo(f"  ChromaDB: ERROR ({e})")
 
-    engine: Engine | None = None
-    sqlite_count = 0
-    db_url = os.getenv("DATABASE_URL")
-    if db_url:
-        try:
-            engine = create_engine(db_url)
-            with engine.connect() as conn:
-                stmt = select(func.count()).select_from(WikiChunk)
-                sqlite_count = conn.execute(stmt).scalar() or 0
-            click.echo(f"  SQLite Chunks: {sqlite_count:,}")
-        except Exception as e:
-            click.echo(f"  SQLite: ERROR ({e})")
-    else:
-        click.echo("  SQLite: DATABASE_URL not set")
-
-    return vector_store, chroma_count, engine, sqlite_count
+    return vector_store, chroma_count
 
 
 def _confirm_deletion(force: bool) -> bool:
@@ -65,13 +46,8 @@ def _confirm_deletion(force: bool) -> bool:
     return confirmation == "DELETE ALL"
 
 
-def _perform_purge(
-    vector_store: ChromaVectorStore | None,
-    chroma_count: int,
-    engine: Engine | None,
-    sqlite_count: int,
-) -> tuple[int, int]:
-    """Perform the actual purge and return counts deleted."""
+def _perform_purge(vector_store: ChromaVectorStore | None, chroma_count: int) -> int:
+    """Perform the actual purge and return count deleted."""
     click.echo("Purging data...")
 
     chroma_deleted = 0
@@ -80,21 +56,11 @@ def _perform_purge(
         if results["ids"]:
             vector_store.collection.delete(ids=results["ids"])
             chroma_deleted = len(results["ids"])
-        click.echo(f"  Deleted from Chroma: {chroma_deleted:,} chunks")
+        click.echo(f"  Deleted from ChromaDB: {chroma_deleted:,} chunks")
     else:
-        click.echo("  Deleted from Chroma: 0 (empty or unavailable)")
+        click.echo("  Deleted from ChromaDB: 0 (empty or unavailable)")
 
-    sqlite_deleted = 0
-    if engine and sqlite_count > 0:
-        with engine.begin() as conn:
-            stmt = delete(WikiChunk)
-            result = conn.execute(stmt)
-            sqlite_deleted = result.rowcount
-        click.echo(f"  Deleted from SQLite: {sqlite_deleted:,} rows")
-    else:
-        click.echo("  Deleted from SQLite: 0 (empty or unavailable)")
-
-    return chroma_deleted, sqlite_deleted
+    return chroma_deleted
 
 
 @click.command()
@@ -111,7 +77,7 @@ def _perform_purge(
     help="Skip confirmation prompt (requires typing DELETE ALL otherwise)",
 )
 def purge_db(chroma_path: Path, force: bool) -> None:
-    """Delete ALL chunks from both Chroma and SQLite stores.
+    """Delete ALL chunks from ChromaDB.
 
     WARNING: This is a destructive operation that cannot be undone!
     """
@@ -121,11 +87,11 @@ def purge_db(chroma_path: Path, force: bool) -> None:
     click.echo()
 
     try:
-        vector_store, chroma_count, engine, sqlite_count = _get_counts(chroma_path)
+        vector_store, chroma_count = _get_counts(chroma_path)
         click.echo()
 
-        if chroma_count == 0 and sqlite_count == 0:
-            click.echo("No data to delete - both stores are empty.")
+        if chroma_count == 0:
+            click.echo("No data to delete - ChromaDB is empty.")
             return
 
         if not _confirm_deletion(force):
@@ -133,21 +99,15 @@ def purge_db(chroma_path: Path, force: bool) -> None:
             return
 
         click.echo()
-        chroma_deleted, sqlite_deleted = _perform_purge(
-            vector_store, chroma_count, engine, sqlite_count
-        )
+        chroma_deleted = _perform_purge(vector_store, chroma_count)
 
         click.echo("\n" + "=" * 80)
         click.echo("Purge Complete!")
         click.echo("=" * 80)
-        click.echo(f"  Chroma Chunks Deleted: {chroma_deleted:,}")
-        click.echo(f"  SQLite Rows Deleted: {sqlite_deleted:,}")
-        click.echo(f"  Total Deleted: {chroma_deleted + sqlite_deleted:,}")
+        click.echo(f"  ChromaDB Chunks Deleted: {chroma_deleted:,}")
         click.echo()
 
-        logger.warning(
-            "database_purged", chroma_deleted=chroma_deleted, sqlite_deleted=sqlite_deleted
-        )
+        logger.warning("database_purged", chroma_deleted=chroma_deleted)
 
     except KeyboardInterrupt:
         click.echo("\nPurge cancelled by user", err=True)

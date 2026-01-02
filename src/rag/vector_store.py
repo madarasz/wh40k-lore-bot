@@ -8,8 +8,47 @@ import numpy as np
 import structlog
 from chromadb.api.models.Collection import Collection
 
-from src.models.wiki_chunk import WikiChunk
 from src.utils.exceptions import VectorStoreError
+
+
+def generate_chunk_id(wiki_page_id: str, chunk_index: int) -> str:
+    """Generate deterministic chunk ID from wiki_page_id and chunk_index.
+
+    Format: {wiki_page_id}_{chunk_index}
+    Example: "58_0", "58_1", "100_5"
+
+    This enables reliable upsert/delete operations for re-ingestion.
+
+    Args:
+        wiki_page_id: Wiki page ID from markdown frontmatter
+        chunk_index: Zero-based index of chunk within article
+
+    Returns:
+        Deterministic ID string
+    """
+    return f"{wiki_page_id}_{chunk_index}"
+
+
+class ChunkData(TypedDict):
+    """Data structure for chunk storage.
+
+    Attributes:
+        id: Unique chunk identifier (wiki_page_id_chunk_index format)
+        wiki_page_id: Wiki page ID for deduplication/updates
+        article_title: Title of the source article
+        section_path: Hierarchical section path
+        chunk_text: The actual text content of the chunk
+        chunk_index: Zero-based index of chunk within article
+        metadata: Flexible metadata dict (faction, era, spoiler_flag, content_type, etc.)
+    """
+
+    id: str
+    wiki_page_id: str
+    article_title: str
+    section_path: str
+    chunk_text: str
+    chunk_index: int
+    metadata: dict[str, Any]
 
 
 class ChunkMetadata(TypedDict, total=False):
@@ -39,8 +78,8 @@ class ChunkMetadata(TypedDict, total=False):
 class ChromaVectorStore:
     """Vector database for storing and querying chunk embeddings using Chroma.
 
-    This class provides a high-level interface to Chroma for storing WikiChunk
-    embeddings and performing similarity searches with metadata filtering.
+    This class provides a high-level interface to Chroma for storing chunk data
+    and performing similarity searches with metadata filtering.
 
     Attributes:
         client: Chroma PersistentClient instance
@@ -114,7 +153,7 @@ class ChromaVectorStore:
 
     def add_chunks(
         self,
-        chunks: list[WikiChunk],
+        chunks: list[ChunkData],
         embeddings: list[np.ndarray],
     ) -> None:
         """Add chunks with embeddings to the vector store.
@@ -122,7 +161,7 @@ class ChromaVectorStore:
         Chunks are inserted in batches of 1000 for optimal performance.
 
         Args:
-            chunks: List of WikiChunk objects to store
+            chunks: List of ChunkData dicts to store
             embeddings: List of embeddings (1536-dim numpy arrays)
 
         Raises:
@@ -150,10 +189,10 @@ class ChromaVectorStore:
                 batch_embeddings = embeddings[batch_idx:batch_end]
 
                 # Prepare data for Chroma
-                ids = [chunk.id for chunk in batch_chunks]
+                ids = [chunk["id"] for chunk in batch_chunks]
                 embeddings_list = [emb.tolist() for emb in batch_embeddings]
                 metadatas = [self._chunk_to_metadata(chunk) for chunk in batch_chunks]
-                documents = [chunk.chunk_text for chunk in batch_chunks]
+                documents = [chunk["chunk_text"] for chunk in batch_chunks]
 
                 # Add to collection
                 self.collection.add(
@@ -187,7 +226,7 @@ class ChromaVectorStore:
         query_embedding: np.ndarray,
         n_results: int = 10,
         filters: dict[str, Any] | None = None,
-    ) -> list[tuple[WikiChunk, float]]:
+    ) -> list[tuple[ChunkData, float]]:
         """Query vector store for similar chunks.
 
         Args:
@@ -201,7 +240,7 @@ class ChromaVectorStore:
                 - {"faction": "Space Marines", "spoiler_flag": False}
 
         Returns:
-            List of tuples (WikiChunk, distance_score) sorted by similarity
+            List of tuples (ChunkData, distance_score) sorted by similarity
 
         Raises:
             VectorStoreError: If query fails
@@ -213,7 +252,7 @@ class ChromaVectorStore:
             ...     filters={"faction": "Space Marines", "spoiler_flag": False}
             ... )
             >>> for chunk, score in results:
-            ...     print(f"{chunk.article_title}: {score}")
+            ...     print(f"{chunk['article_title']}: {score}")
         """
         try:
             self.logger.info(
@@ -232,8 +271,8 @@ class ChromaVectorStore:
                 where=chroma_filters,
             )
 
-            # Convert results to WikiChunk objects
-            chunks_with_scores: list[tuple[WikiChunk, float]] = []
+            # Convert results to ChunkData dicts
+            chunks_with_scores: list[tuple[ChunkData, float]] = []
 
             if results["ids"] and results["ids"][0]:
                 for i, chunk_id in enumerate(results["ids"][0]):
@@ -241,7 +280,7 @@ class ChromaVectorStore:
                     document = results["documents"][0][i] if results["documents"] else ""
                     distance = results["distances"][0][i] if results["distances"] else 0.0
 
-                    # Reconstruct WikiChunk from metadata
+                    # Reconstruct ChunkData from metadata
                     chunk = self._metadata_to_chunk(
                         chunk_id=chunk_id,
                         metadata=cast(dict[str, Any], metadata),
@@ -365,14 +404,14 @@ class ChromaVectorStore:
                 f"Failed to delete chunks for wiki_page_id {wiki_page_id}: {e}"
             ) from e
 
-    def get_by_id(self, chunk_id: str) -> WikiChunk | None:
+    def get_by_id(self, chunk_id: str) -> ChunkData | None:
         """Get a chunk by its ID.
 
         Args:
             chunk_id: Unique chunk identifier
 
         Returns:
-            WikiChunk if found, None otherwise
+            ChunkData if found, None otherwise
 
         Raises:
             VectorStoreError: If retrieval fails
@@ -492,27 +531,27 @@ class ChromaVectorStore:
         filter_list = [{key: value} for key, value in filters.items()]
         return {"$and": filter_list}
 
-    def _chunk_to_metadata(self, chunk: WikiChunk) -> dict[str, Any]:
-        """Convert WikiChunk to Chroma metadata format.
+    def _chunk_to_metadata(self, chunk: ChunkData) -> dict[str, Any]:
+        """Convert ChunkData to Chroma metadata format.
 
         Args:
-            chunk: WikiChunk object
+            chunk: ChunkData dict
 
         Returns:
             Metadata dictionary for Chroma (no None values allowed)
         """
         # Get values with proper None handling (use default if value is None)
-        spoiler_flag = chunk.metadata_json.get("spoiler_flag")
-        content_type = chunk.metadata_json.get("content_type")
+        spoiler_flag = chunk["metadata"].get("spoiler_flag")
+        content_type = chunk["metadata"].get("content_type")
 
         # Get article_last_updated for change detection
-        article_last_updated = chunk.metadata_json.get("article_last_updated")
+        article_last_updated = chunk["metadata"].get("article_last_updated")
 
         metadata: dict[str, Any] = {
-            "wiki_page_id": chunk.wiki_page_id,
-            "article_title": chunk.article_title,
-            "section_path": chunk.section_path,
-            "chunk_index": chunk.chunk_index,
+            "wiki_page_id": chunk["wiki_page_id"],
+            "article_title": chunk["article_title"],
+            "section_path": chunk["section_path"],
+            "chunk_index": chunk["chunk_index"],
             "spoiler_flag": spoiler_flag if spoiler_flag is not None else False,
             "content_type": content_type if content_type is not None else "lore",
         }
@@ -522,11 +561,11 @@ class ChromaVectorStore:
             metadata["article_last_updated"] = article_last_updated
 
         # Add optional fields only if present and not None
-        faction = chunk.metadata_json.get("faction")
+        faction = chunk["metadata"].get("faction")
         if faction is not None:
             metadata["faction"] = faction
 
-        era = chunk.metadata_json.get("era")
+        era = chunk["metadata"].get("era")
         if era is not None:
             metadata["era"] = era
 
@@ -537,8 +576,8 @@ class ChromaVectorStore:
         chunk_id: str,
         metadata: dict[str, Any],
         document: str,
-    ) -> WikiChunk:
-        """Convert Chroma metadata back to WikiChunk.
+    ) -> ChunkData:
+        """Convert Chroma metadata back to ChunkData.
 
         Args:
             chunk_id: Unique chunk identifier
@@ -546,30 +585,34 @@ class ChromaVectorStore:
             document: Chunk text content
 
         Returns:
-            WikiChunk object
+            ChunkData dict
         """
-        # Build metadata_json from Chroma metadata
-        metadata_json: dict[str, Any] = {
+        # Build metadata dict from Chroma metadata
+        chunk_metadata: dict[str, Any] = {
             "spoiler_flag": metadata.get("spoiler_flag", False),
             "content_type": metadata.get("content_type", "lore"),
         }
 
         # Add optional fields if present
         if "faction" in metadata:
-            metadata_json["faction"] = metadata["faction"]
+            chunk_metadata["faction"] = metadata["faction"]
 
         if "era" in metadata:
-            metadata_json["era"] = metadata["era"]
+            chunk_metadata["era"] = metadata["era"]
 
-        # Create WikiChunk
-        chunk = WikiChunk(
-            id=chunk_id,
-            wiki_page_id=metadata.get("wiki_page_id", ""),
-            article_title=metadata.get("article_title", ""),
-            section_path=metadata.get("section_path", ""),
-            chunk_text=document,
-            chunk_index=metadata.get("chunk_index", 0),
-            metadata_json=metadata_json,
-        )
+        # Add article_last_updated if present (for change detection)
+        if "article_last_updated" in metadata:
+            chunk_metadata["article_last_updated"] = metadata["article_last_updated"]
+
+        # Create ChunkData dict
+        chunk: ChunkData = {
+            "id": chunk_id,
+            "wiki_page_id": metadata.get("wiki_page_id", ""),
+            "article_title": metadata.get("article_title", ""),
+            "section_path": metadata.get("section_path", ""),
+            "chunk_text": document,
+            "chunk_index": metadata.get("chunk_index", 0),
+            "metadata": chunk_metadata,
+        }
 
         return chunk

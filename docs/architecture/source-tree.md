@@ -33,7 +33,7 @@ wh40k-lore-bot/
 │   │   └── response_formatter.py
 │   │
 │   ├── repositories/                      # Data access
-│   │   ├── vector_repository.py
+│   │   ├── vector_repository.py           # ChromaDB access (sole chunk storage)
 │   │   ├── bm25_repository.py
 │   │   ├── query_log_repository.py
 │   │   ├── trivia_repository.py
@@ -51,7 +51,6 @@ wh40k-lore-bot/
 │   │   └── index_builder.py
 │   │
 │   ├── models/                            # Domain models
-│   │   ├── wiki_chunk.py
 │   │   ├── query_log.py
 │   │   ├── trivia.py
 │   │   ├── server_config.py
