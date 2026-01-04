@@ -4,6 +4,7 @@ import shutil
 import time
 import uuid
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
@@ -42,27 +43,28 @@ def vector_store():
 
 @pytest.fixture
 def test_chunks():
-    """Create 100 test chunks with various metadata."""
+    """Create 100 test chunks with various metadata.
+
+    Note: Schema was refactored to only include article_last_updated and links.
+    Filtering is done via top-level fields: wiki_page_id, article_title, section_path.
+    """
     chunks: list[ChunkData] = []
-    factions = ["Space Marines", "Orks", "Eldar", "Chaos", "Tyranids"]
-    eras = ["Great Crusade", "Horus Heresy", "War of the Beast", "Age of Apostasy", "Current"]
-    content_types = ["lore", "tactics", "units"]
+    section_paths = ["Infobox", "History", "Organization", "Notable Members", "Equipment"]
 
     for i in range(100):
-        metadata = {
-            "faction": factions[i % len(factions)],
-            "spoiler_flag": i % 4 == 0,  # Every 4th chunk is a spoiler
-            "content_type": content_types[i % len(content_types)],
+        # New schema: only article_last_updated and links in metadata
+        metadata: dict[str, Any] = {
+            "article_last_updated": f"2024-01-{(i % 28) + 1:02d}T12:00:00Z",
         }
-        # Add era only if not None
-        if i % 3 != 0:
-            metadata["era"] = eras[i % len(eras)]
+        # Add links for some chunks
+        if i % 3 == 0:
+            metadata["links"] = [f"Link_{i}_1", f"Link_{i}_2"]
 
         chunk: ChunkData = {
             "id": f"test-chunk-{i}",
             "wiki_page_id": f"page-{i % 10}",
             "article_title": f"Article {i % 20}",
-            "section_path": f"Section {i % 5} > Subsection {i % 3}",
+            "section_path": section_paths[i % len(section_paths)],
             "chunk_text": f"This is test chunk {i} with various content about Warhammer 40k lore.",
             "chunk_index": i % 10,
             "metadata": metadata,
@@ -130,90 +132,91 @@ class TestChromaIntegration:
             # Valid distance range for cosine (allow tiny negative due to float precision)
             assert -0.001 <= distance <= 2
 
-    def test_query_with_faction_filter(self, vector_store, test_chunks, test_embeddings):
-        """Test query with faction filter."""
+    def test_query_with_wiki_page_id_filter(self, vector_store, test_chunks, test_embeddings):
+        """Test query with wiki_page_id filter."""
         # Add chunks
         vector_store.add_chunks(test_chunks, test_embeddings)
 
-        # Query for Space Marines only
+        # Query for page-0 only (10 chunks with this wiki_page_id)
         query_embedding = test_embeddings[0]
         results = vector_store.query(
             query_embedding,
             n_results=10,
-            filters={"faction": "Space Marines"},
+            filters={"wiki_page_id": "page-0"},
         )
 
-        # Should return results (20 Space Marines chunks total)
+        # Should return results (10 chunks with wiki_page_id="page-0")
         assert len(results) > 0
         assert len(results) <= 10
 
-        # All results should be Space Marines
+        # All results should have wiki_page_id="page-0"
         for chunk, _distance in results:
-            assert chunk["metadata"]["faction"] == "Space Marines"
+            assert chunk["wiki_page_id"] == "page-0"
 
-    def test_query_with_era_filter(self, vector_store, test_chunks, test_embeddings):
-        """Test query with era filter."""
+    def test_query_with_section_path_filter(self, vector_store, test_chunks, test_embeddings):
+        """Test query with section_path filter."""
         # Add chunks
         vector_store.add_chunks(test_chunks, test_embeddings)
 
-        # Query for Horus Heresy only
+        # Query for History sections only (20 chunks with this section_path)
         query_embedding = test_embeddings[1]
         results = vector_store.query(
             query_embedding,
             n_results=10,
-            filters={"era": "Horus Heresy"},
+            filters={"section_path": "History"},
         )
 
         # Should return results
         assert len(results) > 0
 
-        # All results should be from Horus Heresy era
+        # All results should have section_path="History"
         for chunk, _distance in results:
-            assert chunk["metadata"].get("era") == "Horus Heresy"
+            assert chunk["section_path"] == "History"
 
-    def test_query_with_spoiler_filter(self, vector_store, test_chunks, test_embeddings):
-        """Test query excluding spoilers."""
+    def test_query_with_article_title_filter(self, vector_store, test_chunks, test_embeddings):
+        """Test query with article_title filter."""
         # Add chunks
         vector_store.add_chunks(test_chunks, test_embeddings)
 
-        # Query excluding spoilers
+        # Query for Article 0 only (5 chunks with this title)
         query_embedding = test_embeddings[2]
         results = vector_store.query(
             query_embedding,
             n_results=10,
-            filters={"spoiler_flag": False},
+            filters={"article_title": "Article 0"},
         )
 
         # Should return results
         assert len(results) > 0
 
-        # All results should not be spoilers
+        # All results should have article_title="Article 0"
         for chunk, _distance in results:
-            assert chunk["metadata"]["spoiler_flag"] is False
+            assert chunk["article_title"] == "Article 0"
 
     def test_query_with_compound_filters(self, vector_store, test_chunks, test_embeddings):
         """Test query with multiple filters (AND logic)."""
         # Add chunks
         vector_store.add_chunks(test_chunks, test_embeddings)
 
-        # Query for Space Marines without spoilers
+        # Query for specific wiki_page_id and section_path
         query_embedding = test_embeddings[3]
         results = vector_store.query(
             query_embedding,
             n_results=10,
             filters={
-                "faction": "Space Marines",
-                "spoiler_flag": False,
+                "wiki_page_id": "page-0",
+                "section_path": "Infobox",
             },
         )
 
-        # Should return results
+        # Should return results (page-0 has chunks at indices 0,10,20,30,40,50,60,70,80,90
+        # and Infobox is at indices 0,5,10,15,... so intersection is at 0,10,20,...)
         assert len(results) > 0
 
         # All results should match all filters
         for chunk, _distance in results:
-            assert chunk["metadata"]["faction"] == "Space Marines"
-            assert chunk["metadata"]["spoiler_flag"] is False
+            assert chunk["wiki_page_id"] == "page-0"
+            assert chunk["section_path"] == "Infobox"
 
     def test_get_by_id(self, vector_store, test_chunks, test_embeddings):
         """Test retrieving chunk by ID."""
@@ -310,8 +313,7 @@ class TestChromaIntegration:
                 "chunk_text": f"Batch chunk {i}",
                 "chunk_index": i,
                 "metadata": {
-                    "spoiler_flag": False,
-                    "content_type": "lore",
+                    "article_last_updated": "2024-01-01T12:00:00Z",
                 },
             }
             chunks.append(chunk)
@@ -333,36 +335,41 @@ class TestChromaIntegration:
         # Add chunks
         vector_store.add_chunks(test_chunks, test_embeddings)
 
-        # Query with impossible filter combination
+        # Query with non-existent wiki_page_id
         query_embedding = test_embeddings[0]
         results = vector_store.query(
             query_embedding,
             n_results=10,
-            filters={"faction": "NonExistentFaction"},
+            filters={"wiki_page_id": "nonexistent-page"},
         )
 
         # Should return empty list
         assert results == []
 
     def test_metadata_preservation(self, vector_store, test_chunks, test_embeddings):
-        """Test that all metadata fields are preserved correctly."""
+        """Test that all metadata fields are preserved correctly.
+
+        Note: Schema was refactored to only include article_last_updated and links.
+        """
         # Add chunks
         vector_store.add_chunks(test_chunks, test_embeddings)
 
-        # Get chunk with all metadata fields
+        # Get chunk with all metadata fields (chunk 0 has links since 0 % 3 == 0)
         chunk = vector_store.get_by_id("test-chunk-0")
 
         assert chunk is not None
-        assert chunk["metadata"]["faction"] == "Space Marines"
-        assert chunk["metadata"]["spoiler_flag"] is True  # chunk 0: 0 % 4 == 0
-        assert chunk["metadata"]["content_type"] == "lore"
+        assert chunk["metadata"]["article_last_updated"] == "2024-01-01T12:00:00Z"
+        assert chunk["metadata"]["links"] == ["Link_0_1", "Link_0_2"]
 
-        # Get chunk with optional era field
-        chunk_with_era = vector_store.get_by_id("test-chunk-1")
-        assert chunk_with_era is not None
-        assert "era" in chunk_with_era["metadata"]
+        # Get chunk without links (chunk 1: 1 % 3 != 0)
+        chunk_no_links = vector_store.get_by_id("test-chunk-1")
+        assert chunk_no_links is not None
+        assert chunk_no_links["metadata"]["article_last_updated"] == "2024-01-02T12:00:00Z"
+        assert (
+            "links" not in chunk_no_links["metadata"] or chunk_no_links["metadata"]["links"] == []
+        )
 
-        # Get chunk without era field (index divisible by 3)
-        chunk_no_era = vector_store.get_by_id("test-chunk-3")
-        assert chunk_no_era is not None
-        assert "era" not in chunk_no_era["metadata"]
+        # Get chunk with links (chunk 3: 3 % 3 == 0)
+        chunk_with_links = vector_store.get_by_id("test-chunk-3")
+        assert chunk_with_links is not None
+        assert chunk_with_links["metadata"]["links"] == ["Link_3_1", "Link_3_2"]
