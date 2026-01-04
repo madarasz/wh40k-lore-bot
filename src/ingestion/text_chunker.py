@@ -18,6 +18,11 @@ logger = structlog.get_logger(__name__)
 MAX_TOKENS = 500
 MIN_TOKENS = 50
 
+# Regex pattern for markdown internal links: [Display Text](Link Title)
+# Excludes external links (http/https) and anchors (#)
+# Handles one level of nested parentheses in link targets (e.g., "Space Marine (Game)")
+INTERNAL_LINK_PATTERN = re.compile(r"\[([^\]]+)\]\(([^()]*(?:\([^()]*\)[^()]*)*)\)")
+
 
 @dataclass
 class Section:
@@ -51,12 +56,23 @@ class MarkdownChunker:
         self._encoder = tiktoken.get_encoding("cl100k_base")
         logger.info("markdown_chunker_initialized", encoding="cl100k_base")
 
-    def chunk_markdown(self, markdown: str, article_title: str) -> list[Chunk]:
+    def chunk_markdown(
+        self,
+        markdown: str,
+        article_title: str,
+        infobox: str | None = None,
+        infobox_links: list[str] | None = None,
+    ) -> list[Chunk]:
         """Chunk markdown into semantically coherent pieces.
+
+        If an infobox is provided, it becomes chunk_index=0 with section_path="Infobox".
+        Content chunks follow with sequential indices.
 
         Args:
             markdown: Markdown content to chunk
             article_title: Title of the source article
+            infobox: Optional formatted infobox text
+            infobox_links: Optional list of links from the infobox
 
         Returns:
             List of Chunk objects with text and metadata
@@ -69,6 +85,22 @@ class MarkdownChunker:
         if not article_title or not article_title.strip():
             raise ValueError("Article title cannot be empty")
 
+        all_chunks: list[Chunk] = []
+
+        # Add infobox as first chunk if present
+        if infobox:
+            # Import here to avoid circular dependency at module level
+            from src.ingestion.models import Chunk as ChunkModel  # noqa: PLC0415
+
+            infobox_chunk = ChunkModel(
+                chunk_text=infobox,
+                article_title=article_title,
+                section_path="Infobox",
+                chunk_index=0,
+                links=infobox_links or [],
+            )
+            all_chunks.append(infobox_chunk)
+
         # Parse sections from markdown
         sections = self._parse_sections(markdown)
 
@@ -78,14 +110,19 @@ class MarkdownChunker:
             sections = [Section(text=markdown, section_path=article_title, level=1)]
 
         # Chunk each section
-        all_chunks: list[Chunk] = []
         for section in sections:
             section_chunks = self._chunk_section(section, article_title)
             all_chunks.extend(section_chunks)
 
-        # Merge tiny chunks across section boundaries
+        # Merge tiny chunks across section boundaries (skip infobox)
         # Only merge if sections are header-only (very small)
-        all_chunks = self._merge_header_only_chunks(all_chunks)
+        if infobox and len(all_chunks) > 1:
+            # Keep infobox separate, merge only content chunks
+            infobox_chunk = all_chunks[0]
+            content_chunks = self._merge_header_only_chunks(all_chunks[1:])
+            all_chunks = [infobox_chunk] + content_chunks
+        else:
+            all_chunks = self._merge_header_only_chunks(all_chunks)
 
         # Assign chunk indices
         for idx, chunk in enumerate(all_chunks):
@@ -95,6 +132,7 @@ class MarkdownChunker:
             "markdown_chunked",
             article_title=article_title,
             total_chunks=len(all_chunks),
+            has_infobox=infobox is not None,
             avg_tokens=sum(self._count_tokens(c.chunk_text) for c in all_chunks) // len(all_chunks)
             if all_chunks
             else 0,
@@ -199,6 +237,7 @@ class MarkdownChunker:
                     article_title=article_title,
                     section_path=section.section_path,
                     chunk_index=0,  # Will be reassigned later
+                    links=self._extract_links(section.text),
                 )
             ]
 
@@ -234,6 +273,7 @@ class MarkdownChunker:
                             article_title=article_title,
                             section_path=section.section_path,
                             chunk_index=0,
+                            links=self._extract_links(chunk_text),
                         )
                     )
                     current_chunk_parts = []
@@ -254,6 +294,7 @@ class MarkdownChunker:
                                     article_title=article_title,
                                     section_path=section.section_path,
                                     chunk_index=0,
+                                    links=self._extract_links(chunk_text),
                                 )
                             )
                             current_chunk_parts = []
@@ -274,6 +315,7 @@ class MarkdownChunker:
                                 article_title=article_title,
                                 section_path=section.section_path,
                                 chunk_index=0,
+                                links=self._extract_links(chunk_text),
                             )
                         )
                         current_chunk_parts = []
@@ -291,6 +333,7 @@ class MarkdownChunker:
                     article_title=article_title,
                     section_path=section.section_path,
                     chunk_index=0,
+                    links=self._extract_links(chunk_text),
                 )
             )
 
@@ -370,6 +413,32 @@ class MarkdownChunker:
             return 0
         return len(self._encoder.encode(text))
 
+    def _extract_links(self, text: str) -> list[str]:
+        """Extract internal wiki links from markdown text.
+
+        Extracts link targets from markdown-formatted internal links.
+        Excludes external links (http/https) and anchor links (#).
+
+        Args:
+            text: Markdown text to extract links from
+
+        Returns:
+            Deduplicated list of internal link targets
+        """
+        if not text:
+            return []
+
+        links: list[str] = []
+        for match in INTERNAL_LINK_PATTERN.finditer(text):
+            link_target = match.group(2)
+            # Skip external links and anchors
+            if link_target.startswith(("http://", "https://", "#")):
+                continue
+            links.append(link_target)
+
+        # Return deduplicated list preserving order
+        return list(dict.fromkeys(links))
+
     def _merge_chunks_by_threshold(self, chunks: list[Chunk], threshold: int) -> list[Chunk]:
         """Merge chunks below token threshold with adjacent chunks."""
         if not chunks:
@@ -386,6 +455,9 @@ class MarkdownChunker:
                 next_chunk = chunks[i + 1]
                 merged_text = current.chunk_text + "\n\n" + next_chunk.chunk_text
                 next_chunk.chunk_text = merged_text
+                # Merge links from both chunks (deduplicated)
+                combined_links = current.links + next_chunk.links
+                next_chunk.links = list(dict.fromkeys(combined_links))
                 i += 1
             else:
                 merged.append(current)

@@ -112,6 +112,11 @@ poetry run pytest tests/unit/test_logger.py
 poetry run pytest -v
 ```
 
+```bash
+# Run integration tests with real APIs (costs money)
+poetry run pytest -m integration
+```
+
 ### Code Quality
 
 ```bash

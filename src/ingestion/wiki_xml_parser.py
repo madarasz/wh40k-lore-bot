@@ -15,6 +15,9 @@ from src.ingestion.models import WikiArticle
 # MediaWiki XML namespace
 NS = "{http://www.mediawiki.org/xml/export-0.11/}"
 
+# Infobox template prefix length (len("infobox"))
+INFOBOX_PREFIX_LEN = 7
+
 logger = structlog.get_logger(__name__)
 
 
@@ -231,6 +234,9 @@ class WikiXMLParser:
         if page_id_set and page_id not in page_id_set:
             return None
 
+        # Extract infobox before template removal (it would be stripped otherwise)
+        infobox_text, infobox_links = self._extract_infobox(wikitext, self.redirect_map)
+
         # Convert wikitext to markdown (with redirect resolution)
         markdown_content = self._convert_wikitext_to_markdown(wikitext, self.redirect_map)
 
@@ -244,6 +250,8 @@ class WikiXMLParser:
             last_updated=timestamp,
             content=markdown_content,
             word_count=word_count,
+            infobox=infobox_text,
+            infobox_links=infobox_links,
         )
 
     def _extract_page_data(  # noqa: PLR0911
@@ -481,4 +489,179 @@ class WikiXMLParser:
 
         except Exception as e:
             self.logger.error("link_extraction_error", error=str(e))
+            return []
+
+    def _extract_infobox(
+        self, wikitext: str, redirect_map: dict[str, str] | None = None
+    ) -> tuple[str | None, list[str]]:
+        """Extract infobox template and convert to readable markdown.
+
+        Extracts the first Infobox template found in the wikitext,
+        formats it as readable markdown, and extracts internal links.
+
+        Args:
+            wikitext: Raw MediaWiki markup text
+            redirect_map: Optional mapping of redirect sources to targets
+
+        Returns:
+            Tuple of (infobox_text, infobox_links) where infobox_text is None
+            if no infobox was found
+        """
+        if not wikitext:
+            return None, []
+
+        try:
+            parsed = mwparserfromhell.parse(wikitext)
+
+            for template in parsed.filter_templates():
+                template_name = str(template.name).strip()
+                if template_name.lower().startswith("infobox"):
+                    # Extract infobox type (e.g., "Chapter" from "Infobox Chapter")
+                    if len(template_name) > INFOBOX_PREFIX_LEN:
+                        infobox_type = template_name[INFOBOX_PREFIX_LEN:].strip().title()
+                    else:
+                        infobox_type = ""
+
+                    # Format infobox as markdown
+                    infobox_text = self._format_infobox(template, infobox_type)
+
+                    # Extract links from infobox
+                    infobox_links = self._extract_links_from_template(template, redirect_map)
+
+                    return infobox_text, infobox_links
+
+            return None, []
+
+        except Exception as e:
+            self.logger.error("infobox_extraction_error", error=str(e))
+            return None, []
+
+    def _format_infobox(self, template: mwparserfromhell.nodes.Template, infobox_type: str) -> str:
+        """Format an infobox template as readable markdown.
+
+        Converts infobox from:
+            {{Infobox Chapter
+            | name = Black Templars
+            | Primarch = [[Rogal Dorn]]
+            }}
+
+        To:
+            ## Infobox: Chapter
+
+            - **Name**: Black Templars
+            - **Primarch**: Rogal Dorn
+
+        Args:
+            template: The infobox template object
+            infobox_type: The type of infobox (e.g., "Chapter", "Character")
+
+        Returns:
+            Formatted markdown string
+        """
+        lines = []
+
+        # Add header
+        if infobox_type:
+            lines.append(f"## Infobox: {infobox_type}")
+        else:
+            lines.append("## Infobox")
+        lines.append("")
+
+        # Process each parameter
+        for param in template.params:
+            param_name = str(param.name).strip()
+            param_value = str(param.value).strip()
+
+            # Skip empty values or image parameters
+            if not param_value or param_name.lower() in ("image", "image caption", "image_caption"):
+                continue
+
+            # Clean the value: remove wiki links but keep text
+            clean_value = self._clean_infobox_value(param_value)
+            if clean_value:
+                # Capitalize param name for display
+                display_name = param_name.replace("_", " ").title()
+                lines.append(f"- **{display_name}**: {clean_value}")
+
+        return "\n".join(lines)
+
+    def _clean_infobox_value(self, value: str) -> str:
+        """Clean an infobox parameter value.
+
+        Removes wiki markup and extracts plain text from links.
+
+        Args:
+            value: Raw parameter value
+
+        Returns:
+            Cleaned text value
+        """
+        try:
+            parsed = mwparserfromhell.parse(value)
+
+            # Replace wikilinks with just their display text
+            for wikilink in parsed.filter_wikilinks():
+                # Use text if available, otherwise title
+                display = str(wikilink.text) if wikilink.text else str(wikilink.title)
+                # Skip File/Image links
+                if str(wikilink.title).startswith(("File:", "Image:")):
+                    value = value.replace(str(wikilink), "")
+                else:
+                    value = value.replace(str(wikilink), display.strip())
+
+            # Remove remaining templates (like {{citation needed}})
+            for template in parsed.filter_templates():
+                value = value.replace(str(template), "")
+
+            # Clean up formatting
+            value = re.sub(r"'''(.+?)'''", r"\1", value)  # Remove bold
+            value = re.sub(r"''(.+?)''", r"\1", value)  # Remove italic
+            value = re.sub(r"<br\s*/?>", ", ", value)  # Replace <br> with comma
+            value = re.sub(r"<[^>]+>", "", value)  # Remove HTML tags
+            value = re.sub(r"\s+", " ", value)  # Normalize whitespace
+
+            return value.strip()
+
+        except Exception:
+            return value.strip()
+
+    def _extract_links_from_template(
+        self,
+        template: mwparserfromhell.nodes.Template,
+        redirect_map: dict[str, str] | None = None,
+    ) -> list[str]:
+        """Extract internal links from an infobox template.
+
+        Args:
+            template: The infobox template object
+            redirect_map: Optional mapping of redirect sources to targets
+
+        Returns:
+            Deduplicated list of internal link targets
+        """
+        links = []
+
+        try:
+            for param in template.params:
+                param_value = str(param.value)
+                parsed = mwparserfromhell.parse(param_value)
+
+                for wikilink in parsed.filter_wikilinks():
+                    link_title = str(wikilink.title).strip()
+
+                    # Skip File, Image, and Category links
+                    if link_title.startswith(("File:", "Image:", "Category:")):
+                        continue
+
+                    # Resolve redirect if applicable
+                    if redirect_map and link_title in redirect_map:
+                        link_title = redirect_map[link_title]
+
+                    links.append(link_title)
+
+            # Return deduplicated list
+            return list(dict.fromkeys(links))
+
+        except Exception as e:
+            self.logger.error("infobox_link_extraction_error", error=str(e))
             return []

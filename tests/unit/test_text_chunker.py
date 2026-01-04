@@ -348,3 +348,221 @@ The Blood Angels favor close combat and rapid assault."""
         paths = [chunk.section_path for chunk in chunks]
         assert any("History" in path for path in paths)
         assert any("Organization" in path for path in paths)
+
+    def test_extract_links_basic(self, chunker: MarkdownChunker) -> None:
+        """Test basic internal link extraction."""
+        text = "The [Ultramarines](Ultramarines) are a [Space Marine](Space Marines) chapter."
+
+        links = chunker._extract_links(text)
+
+        assert len(links) == 2
+        assert "Ultramarines" in links
+        assert "Space Marines" in links
+
+    def test_extract_links_with_nested_parentheses(self, chunker: MarkdownChunker) -> None:
+        """Test link extraction handles nested parentheses in link targets."""
+        text = (
+            "Check out [Space Marine (Game)](Space Marine (Game)) and "
+            "[Dan Abnett](Dan Abnett) for more info."
+        )
+
+        links = chunker._extract_links(text)
+
+        assert len(links) == 2
+        assert "Space Marine (Game)" in links
+        assert "Dan Abnett" in links
+
+    def test_extract_links_deduplication(self, chunker: MarkdownChunker) -> None:
+        """Test that duplicate links are removed."""
+        text = (
+            "The [Emperor](Emperor of Mankind) created the [Primarchs](Primarchs). "
+            "The [Emperor](Emperor of Mankind) also created the Space Marines."
+        )
+
+        links = chunker._extract_links(text)
+
+        assert len(links) == 2
+        assert "Emperor of Mankind" in links
+        assert "Primarchs" in links
+
+    def test_extract_links_excludes_external(self, chunker: MarkdownChunker) -> None:
+        """Test that external links are excluded."""
+        text = (
+            "See [Wikipedia](https://en.wikipedia.org) for more. "
+            "The [Emperor](Emperor of Mankind) is mentioned there."
+        )
+
+        links = chunker._extract_links(text)
+
+        assert len(links) == 1
+        assert "Emperor of Mankind" in links
+        assert "https://en.wikipedia.org" not in links
+
+    def test_extract_links_excludes_anchors(self, chunker: MarkdownChunker) -> None:
+        """Test that anchor links are excluded."""
+        text = "See [below](#history) for history. The [Blood Angels](Blood Angels) are covered."
+
+        links = chunker._extract_links(text)
+
+        assert len(links) == 1
+        assert "Blood Angels" in links
+        assert "#history" not in links
+
+    def test_extract_links_empty_text(self, chunker: MarkdownChunker) -> None:
+        """Test link extraction from empty text."""
+        links = chunker._extract_links("")
+        assert links == []
+
+    def test_extract_links_no_links(self, chunker: MarkdownChunker) -> None:
+        """Test link extraction from text without links."""
+        text = "This is plain text without any links."
+        links = chunker._extract_links(text)
+        assert links == []
+
+    def test_chunk_contains_links(self, chunker: MarkdownChunker) -> None:
+        """Test that chunks contain extracted links."""
+        markdown = """## Primarchs
+The [Primarchs](Primarchs) were created by the [Emperor](Emperor of Mankind).
+[Roboute Guilliman](Roboute Guilliman) led the [Ultramarines](Ultramarines)."""
+
+        chunks = chunker.chunk_markdown(markdown, "Primarchs")
+
+        assert len(chunks) == 1
+        assert len(chunks[0].links) == 4
+        assert "Primarchs" in chunks[0].links
+        assert "Emperor of Mankind" in chunks[0].links
+        assert "Roboute Guilliman" in chunks[0].links
+        assert "Ultramarines" in chunks[0].links
+
+    def test_merged_chunks_combine_links(self, chunker: MarkdownChunker) -> None:
+        """Test that merged chunks combine their links."""
+        tiny_chunk = Chunk(
+            chunk_text="The [Emperor](Emperor of Mankind).",
+            article_title="Test",
+            section_path="Test",
+            chunk_index=0,
+            links=["Emperor of Mankind"],
+        )
+        normal_chunk = Chunk(
+            chunk_text="The [Primarchs](Primarchs) served him loyally.",
+            article_title="Test",
+            section_path="Test",
+            chunk_index=1,
+            links=["Primarchs"],
+        )
+
+        merged = chunker._merge_tiny_chunks([tiny_chunk, normal_chunk])
+
+        assert len(merged) == 1
+        assert "Emperor of Mankind" in merged[0].links
+        assert "Primarchs" in merged[0].links
+
+    def test_merged_chunks_deduplicate_links(self, chunker: MarkdownChunker) -> None:
+        """Test that merged chunks deduplicate links."""
+        tiny_chunk = Chunk(
+            chunk_text="The [Emperor](Emperor of Mankind).",
+            article_title="Test",
+            section_path="Test",
+            chunk_index=0,
+            links=["Emperor of Mankind"],
+        )
+        normal_chunk = Chunk(
+            chunk_text="The [Emperor](Emperor of Mankind) created the Primarchs.",
+            article_title="Test",
+            section_path="Test",
+            chunk_index=1,
+            links=["Emperor of Mankind"],
+        )
+
+        merged = chunker._merge_tiny_chunks([tiny_chunk, normal_chunk])
+
+        assert len(merged) == 1
+        # Should only have one instance of the link
+        assert merged[0].links.count("Emperor of Mankind") == 1
+
+    def test_infobox_as_first_chunk(self, chunker: MarkdownChunker) -> None:
+        """Test that infobox becomes chunk_index=0 with section_path='Infobox'."""
+        markdown = """## Overview
+The Blood Angels are a noble chapter."""
+
+        infobox = """## Infobox: Chapter
+
+- **Name**: Blood Angels
+- **Primarch**: Sanguinius"""
+
+        infobox_links = ["Sanguinius"]
+
+        chunks = chunker.chunk_markdown(
+            markdown, "Blood Angels", infobox=infobox, infobox_links=infobox_links
+        )
+
+        assert len(chunks) >= 2
+        # First chunk should be infobox
+        assert chunks[0].chunk_index == 0
+        assert chunks[0].section_path == "Infobox"
+        assert "## Infobox: Chapter" in chunks[0].chunk_text
+        assert chunks[0].links == ["Sanguinius"]
+        # Second chunk should be content
+        assert chunks[1].chunk_index == 1
+        assert chunks[1].section_path == "Overview"
+
+    def test_no_infobox_chunks_start_at_zero(self, chunker: MarkdownChunker) -> None:
+        """Test that without infobox, content chunks start at index 0."""
+        markdown = """## Overview
+The Ultramarines are a chapter."""
+
+        chunks = chunker.chunk_markdown(markdown, "Ultramarines")
+
+        assert len(chunks) >= 1
+        assert chunks[0].chunk_index == 0
+        assert chunks[0].section_path == "Overview"
+
+    def test_infobox_not_merged_with_content(self, chunker: MarkdownChunker) -> None:
+        """Test that infobox chunk is not merged with content chunks."""
+        markdown = """## Tiny
+X."""
+
+        infobox = """## Infobox: Character
+
+- **Name**: Horus"""
+
+        chunks = chunker.chunk_markdown(markdown, "Horus", infobox=infobox)
+
+        # Even though content is tiny, infobox should remain separate
+        assert len(chunks) >= 1
+        assert chunks[0].section_path == "Infobox"
+        if len(chunks) > 1:
+            assert chunks[1].section_path != "Infobox"
+
+    def test_infobox_with_empty_links(self, chunker: MarkdownChunker) -> None:
+        """Test infobox with empty links list."""
+        markdown = """## Overview
+Content here."""
+
+        infobox = """## Infobox
+
+- **Name**: Test"""
+
+        chunks = chunker.chunk_markdown(markdown, "Test", infobox=infobox, infobox_links=[])
+
+        assert chunks[0].links == []
+
+    def test_infobox_preserves_content_links(self, chunker: MarkdownChunker) -> None:
+        """Test that content chunk links are preserved when infobox is present."""
+        markdown = """## Overview
+The [Emperor](Emperor of Mankind) created the [Primarchs](Primarchs)."""
+
+        infobox = """## Infobox
+
+- **Name**: Test"""
+        infobox_links = ["Space Marines"]
+
+        chunks = chunker.chunk_markdown(
+            markdown, "Test", infobox=infobox, infobox_links=infobox_links
+        )
+
+        # Infobox chunk has its own links
+        assert chunks[0].links == ["Space Marines"]
+        # Content chunk has its own links
+        assert "Emperor of Mankind" in chunks[1].links
+        assert "Primarchs" in chunks[1].links

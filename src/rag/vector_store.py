@@ -1,5 +1,6 @@
 """Chroma vector database for storing and querying chunk embeddings."""
 
+import json
 from pathlib import Path
 from typing import Any, TypedDict, cast
 
@@ -36,10 +37,10 @@ class ChunkData(TypedDict):
         id: Unique chunk identifier (wiki_page_id_chunk_index format)
         wiki_page_id: Wiki page ID for deduplication/updates
         article_title: Title of the source article
-        section_path: Hierarchical section path
+        section_path: Hierarchical section path, "Infobox" for infobox chunks
         chunk_text: The actual text content of the chunk
         chunk_index: Zero-based index of chunk within article
-        metadata: Flexible metadata dict (faction, era, spoiler_flag, content_type, etc.)
+        metadata: Flexible metadata dict (article_last_updated, links, etc.)
     """
 
     id: str
@@ -57,22 +58,18 @@ class ChunkMetadata(TypedDict, total=False):
     Attributes:
         wiki_page_id: Wiki page ID for deduplication/updates (required)
         article_title: Title of the source article (required)
-        section_path: Hierarchical section path (required)
+        section_path: Hierarchical section path, "Infobox" for infobox chunks (required)
         chunk_index: Zero-based index of chunk within article (required)
-        faction: Faction tag for filtering (optional)
-        era: Era tag for filtering (optional)
-        spoiler_flag: Whether chunk contains spoilers (required)
-        content_type: Type of content (e.g., "lore", "rules") (required)
+        article_last_updated: ISO timestamp of last article update (required)
+        links: Internal wiki links found in this chunk (optional)
     """
 
     wiki_page_id: str
     article_title: str
     section_path: str
     chunk_index: int
-    faction: str  # Optional
-    era: str  # Optional
-    spoiler_flag: bool
-    content_type: str
+    article_last_updated: str
+    links: list[str]
 
 
 class ChromaVectorStore:
@@ -94,7 +91,7 @@ class ChromaVectorStore:
         >>> results = store.query(
         ...     query_embedding=[0.1, 0.2, ...],
         ...     n_results=10,
-        ...     filters={"faction": "Space Marines", "spoiler_flag": False}
+        ...     filters={"section_path": "Infobox"}
         ... )
     """
 
@@ -234,10 +231,9 @@ class ChromaVectorStore:
             n_results: Number of results to return (default: 10)
             filters: Metadata filters (default: None)
                 Examples:
-                - {"faction": "Space Marines"}
-                - {"era": "Horus Heresy"}
-                - {"spoiler_flag": False}
-                - {"faction": "Space Marines", "spoiler_flag": False}
+                - {"wiki_page_id": "123"}
+                - {"article_title": "Ultramarines"}
+                - {"section_path": "Infobox"}
 
         Returns:
             List of tuples (ChunkData, distance_score) sorted by similarity
@@ -249,7 +245,7 @@ class ChromaVectorStore:
             >>> results = store.query(
             ...     query_embedding=embedding,
             ...     n_results=10,
-            ...     filters={"faction": "Space Marines", "spoiler_flag": False}
+            ...     filters={"section_path": "Infobox"}
             ... )
             >>> for chunk, score in results:
             ...     print(f"{chunk['article_title']}: {score}")
@@ -540,34 +536,23 @@ class ChromaVectorStore:
         Returns:
             Metadata dictionary for Chroma (no None values allowed)
         """
-        # Get values with proper None handling (use default if value is None)
-        spoiler_flag = chunk["metadata"].get("spoiler_flag")
-        content_type = chunk["metadata"].get("content_type")
-
-        # Get article_last_updated for change detection
-        article_last_updated = chunk["metadata"].get("article_last_updated")
-
         metadata: dict[str, Any] = {
             "wiki_page_id": chunk["wiki_page_id"],
             "article_title": chunk["article_title"],
             "section_path": chunk["section_path"],
             "chunk_index": chunk["chunk_index"],
-            "spoiler_flag": spoiler_flag if spoiler_flag is not None else False,
-            "content_type": content_type if content_type is not None else "lore",
         }
 
         # Add article_last_updated for change detection (required for re-ingestion)
+        article_last_updated = chunk["metadata"].get("article_last_updated")
         if article_last_updated is not None:
             metadata["article_last_updated"] = article_last_updated
 
-        # Add optional fields only if present and not None
-        faction = chunk["metadata"].get("faction")
-        if faction is not None:
-            metadata["faction"] = faction
-
-        era = chunk["metadata"].get("era")
-        if era is not None:
-            metadata["era"] = era
+        # Add links if present (stored as JSON string for Chroma compatibility)
+        links = chunk["metadata"].get("links")
+        if links is not None and links:
+            # Chroma doesn't support list types in metadata, store as JSON string
+            metadata["links"] = json.dumps(links)
 
         return metadata
 
@@ -588,21 +573,18 @@ class ChromaVectorStore:
             ChunkData dict
         """
         # Build metadata dict from Chroma metadata
-        chunk_metadata: dict[str, Any] = {
-            "spoiler_flag": metadata.get("spoiler_flag", False),
-            "content_type": metadata.get("content_type", "lore"),
-        }
-
-        # Add optional fields if present
-        if "faction" in metadata:
-            chunk_metadata["faction"] = metadata["faction"]
-
-        if "era" in metadata:
-            chunk_metadata["era"] = metadata["era"]
+        chunk_metadata: dict[str, Any] = {}
 
         # Add article_last_updated if present (for change detection)
         if "article_last_updated" in metadata:
             chunk_metadata["article_last_updated"] = metadata["article_last_updated"]
+
+        # Parse links from JSON string if present
+        if "links" in metadata:
+            try:
+                chunk_metadata["links"] = json.loads(metadata["links"])
+            except (json.JSONDecodeError, TypeError):
+                chunk_metadata["links"] = []
 
         # Create ChunkData dict
         chunk: ChunkData = {
