@@ -1,7 +1,7 @@
 # WH40K Lore Discord Bot Product Requirements Document (PRD)
 
-**Version:** 1.2
-**Date:** 2025-12-26
+**Version:** 1.3
+**Date:** 2026-01-05
 **Status:** Draft
 **Author:** PM Agent (John)
 
@@ -34,6 +34,7 @@ The project uses the Fandom Wiki XML export (173MB, ~10,000-15,000 articles) as 
 | 2025-12-26 | 1.0 | Initial PRD draft | PM Agent (John) |
 | 2025-12-26 | 1.1 | Updated configuration model: .env-only (no Discord config), fixed Hungarian language, role-based admin, trivia uses Discord Embed buttons | PM Agent (John) |
 | 2025-12-26 | 1.2 | Corrected language handling: Hungarian default with automatic English response when user queries in English (via LLM prompt, not configuration) | PM Agent (John) |
+| 2026-01-05 | 1.3 | Added Story 2.8: RAG Evaluation & Observability Framework (Langfuse + Arize Phoenix) to Epic 2; updated effort estimate to 13-17 hours | PM Agent (John) |
 
 ---
 
@@ -316,11 +317,11 @@ The project is organized into 5 sequential epics, each delivering deployable, te
 ---
 
 ### Epic 2: Core RAG Query System
-**Goal:** Build the RAG query engine with hybrid retrieval (vector + BM25), metadata filtering, context expansion, and LLM-powered response generation using OpenAI.
+**Goal:** Build the RAG query engine with hybrid retrieval (vector + BM25), metadata filtering, context expansion, LLM-powered response generation using OpenAI, and RAG evaluation framework for quality monitoring.
 
-**Value:** Delivers the core lore query functionality that can be tested via CLI, validating the RAG pipeline before Discord integration complexity.
+**Value:** Delivers the core lore query functionality that can be tested via CLI, validating the RAG pipeline before Discord integration complexity. Includes observability and evaluation tools for continuous quality improvement.
 
-**Estimated Effort:** 12-16 hours
+**Estimated Effort:** 13-17 hours
 
 ---
 
@@ -385,7 +386,30 @@ The project is organized into 5 sequential epics, each delivering deployable, te
 
 ### Epic 2: Core RAG Query System
 
-*[To be detailed in next iteration]*
+**Detailed stories documented in:** [docs/epic-2-core-rag-query-system.md](epic-2-core-rag-query-system.md)
+
+**Summary of 8 Stories:**
+1. Hybrid Retrieval Service (Vector + BM25 with RRF)
+2. Context Expander (cross-reference following)
+3. Multi-LLM Router & OpenAI Provider
+4. Response Formatter & Source Attribution
+5. Query Orchestrator Implementation
+6. Query Logger & Analytics
+7. CLI Adapter & Integration Tests
+8. RAG Evaluation & Observability Framework (Langfuse + Arize Phoenix)
+
+**Epic Completion Criteria:**
+- ⬜ CLI command functional for natural language queries
+- ⬜ Hybrid retrieval delivers relevant chunks (vector + BM25)
+- ⬜ Context expansion follows cross-references
+- ⬜ OpenAI LLM generates Hungarian/English responses
+- ⬜ Source citations properly formatted
+- ⬜ Query logging captures all attempts
+- ⬜ Integration tests pass (4+ tests)
+- ⬜ Observability framework operational (Langfuse tracing when enabled)
+- ⬜ Evaluation framework operational (Phoenix evaluators when enabled)
+- ⬜ p95 latency <5 seconds
+- ⬜ Average cost <$0.002 per query
 
 ---
 
@@ -425,4 +449,4 @@ The project is organized into 5 sequential epics, each delivering deployable, te
 
 ---
 
-**End of PRD v1.2**
+**End of PRD v1.3**
