@@ -12,6 +12,7 @@ from tqdm import tqdm
 from src.cli.utils import load_wiki_ids
 from src.ingestion.markdown_loader import MarkdownLoader
 from src.ingestion.metadata_extractor import MetadataExtractor
+from src.ingestion.models import build_chunk_metadata
 from src.ingestion.text_chunker import MarkdownChunker
 
 logger = structlog.get_logger(__name__)
@@ -100,7 +101,7 @@ def chunk(  # noqa: PLR0915
                 for chunk_obj in chunks:
                     # Extract metadata
                     try:
-                        metadata = metadata_extractor.extract_metadata(chunk_obj)
+                        extracted_metadata = metadata_extractor.extract_metadata(chunk_obj)
                     except Exception as e:
                         logger.warning(
                             "metadata_extraction_failed",
@@ -108,7 +109,14 @@ def chunk(  # noqa: PLR0915
                             chunk_index=chunk_obj.chunk_index,
                             error=str(e),
                         )
-                        metadata = {}
+                        extracted_metadata = {}
+
+                    # Build complete metadata with links (shared with pipeline.py)
+                    metadata = build_chunk_metadata(
+                        extracted_metadata=extracted_metadata,
+                        article_last_updated=article.last_updated,
+                        links=chunk_obj.links,
+                    )
 
                     chunk_entry = {
                         "wiki_page_id": article.wiki_id,

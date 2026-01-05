@@ -355,3 +355,129 @@ class TestRedirectHandling:
         # Should still resolve to NewName even if NewName doesn't exist as an article
         assert "[NewName](NewName)" in result
         assert "OldName" not in result
+
+
+class TestInfoboxExtraction:
+    """Test infobox extraction and formatting."""
+
+    def test_extract_simple_infobox(self, parser: WikiXMLParser) -> None:
+        """Test extraction of a simple infobox."""
+        wikitext = """{{Infobox Chapter
+| name = Black Templars
+| primarch = Rogal Dorn
+| founding = Second Founding
+}}
+
+Some article content here."""
+        infobox_text, infobox_links = parser._extract_infobox(wikitext)
+
+        assert infobox_text is not None
+        assert "## Infobox: Chapter" in infobox_text
+        assert "**Name**: Black Templars" in infobox_text
+        assert "**Primarch**: Rogal Dorn" in infobox_text
+        assert "**Founding**: Second Founding" in infobox_text
+
+    def test_extract_infobox_with_links(self, parser: WikiXMLParser) -> None:
+        """Test extraction of infobox with wiki links."""
+        wikitext = """{{Infobox Chapter
+| name = Ultramarines
+| primarch = [[Roboute Guilliman]]
+| legion = [[Ultramarines Legion]]
+}}"""
+        infobox_text, infobox_links = parser._extract_infobox(wikitext)
+
+        assert infobox_text is not None
+        assert "Roboute Guilliman" in infobox_links
+        assert "Ultramarines Legion" in infobox_links
+        # Links should be cleaned in the text
+        assert "[[" not in infobox_text
+
+    def test_extract_infobox_with_redirect_resolution(self, parser: WikiXMLParser) -> None:
+        """Test that infobox links are resolved via redirect map."""
+        wikitext = """{{Infobox Character
+| name = Horus
+| affiliation = [[Mankind]]
+}}"""
+        redirect_map = {"Mankind": "Humanity"}
+        infobox_text, infobox_links = parser._extract_infobox(wikitext, redirect_map)
+
+        assert "Humanity" in infobox_links
+        assert "Mankind" not in infobox_links
+
+    def test_extract_infobox_skips_images(self, parser: WikiXMLParser) -> None:
+        """Test that image parameters are skipped in infobox."""
+        wikitext = """{{Infobox Chapter
+| image = BloodAngels.jpg
+| image caption = A Blood Angel
+| name = Blood Angels
+}}"""
+        infobox_text, infobox_links = parser._extract_infobox(wikitext)
+
+        assert infobox_text is not None
+        assert "BloodAngels.jpg" not in infobox_text
+        assert "image" not in infobox_text.lower() or "Infobox" in infobox_text
+        assert "**Name**: Blood Angels" in infobox_text
+
+    def test_extract_infobox_no_infobox(self, parser: WikiXMLParser) -> None:
+        """Test extraction when there is no infobox."""
+        wikitext = """==Overview==
+Some article content without an infobox."""
+        infobox_text, infobox_links = parser._extract_infobox(wikitext)
+
+        assert infobox_text is None
+        assert infobox_links == []
+
+    def test_extract_infobox_empty_wikitext(self, parser: WikiXMLParser) -> None:
+        """Test extraction from empty wikitext."""
+        infobox_text, infobox_links = parser._extract_infobox("")
+
+        assert infobox_text is None
+        assert infobox_links == []
+
+    def test_extract_infobox_lowercase_name(self, parser: WikiXMLParser) -> None:
+        """Test extraction with lowercase 'infobox' template name."""
+        wikitext = """{{infobox planet
+| name = Terra
+| sector = Sol
+}}"""
+        infobox_text, infobox_links = parser._extract_infobox(wikitext)
+
+        assert infobox_text is not None
+        assert "## Infobox: Planet" in infobox_text
+
+    def test_extract_infobox_with_file_links(self, parser: WikiXMLParser) -> None:
+        """Test that File: links in infobox values are not included in links."""
+        wikitext = """{{Infobox Chapter
+| name = Imperial Fists
+| banner = [[File:ImperialFists.png]]
+}}"""
+        infobox_text, infobox_links = parser._extract_infobox(wikitext)
+
+        assert infobox_text is not None
+        # File links should not be in the links list
+        assert not any("File:" in link for link in infobox_links)
+
+    def test_clean_infobox_value_removes_wiki_formatting(self, parser: WikiXMLParser) -> None:
+        """Test that wiki formatting is cleaned from infobox values."""
+        # Test bold
+        assert parser._clean_infobox_value("'''Bold'''") == "Bold"
+        # Test italic
+        assert parser._clean_infobox_value("''Italic''") == "Italic"
+        # Test wiki link
+        assert parser._clean_infobox_value("[[Space Marines]]") == "Space Marines"
+        # Test wiki link with display text
+        assert parser._clean_infobox_value("[[Space Marines|Astartes]]") == "Astartes"
+        # Test template removal
+        assert parser._clean_infobox_value("Text {{cite}}") == "Text"
+
+    def test_extract_infobox_deduplicates_links(self, parser: WikiXMLParser) -> None:
+        """Test that duplicate links in infobox are deduplicated."""
+        wikitext = """{{Infobox Character
+| name = Guilliman
+| legion = [[Ultramarines]]
+| chapter = [[Ultramarines]]
+}}"""
+        infobox_text, infobox_links = parser._extract_infobox(wikitext)
+
+        # Should only have one Ultramarines entry
+        assert infobox_links.count("Ultramarines") == 1

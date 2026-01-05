@@ -13,7 +13,7 @@ from tqdm import tqdm
 from src.ingestion.embedding_generator import EmbeddingGenerator
 from src.ingestion.markdown_loader import MarkdownLoader
 from src.ingestion.metadata_extractor import MetadataExtractor
-from src.ingestion.models import WikiArticle
+from src.ingestion.models import WikiArticle, build_chunk_metadata
 from src.ingestion.text_chunker import MarkdownChunker
 from src.rag.vector_store import ChromaVectorStore, ChunkData, generate_chunk_id
 from src.utils.exceptions import IngestionError
@@ -336,7 +336,12 @@ class IngestionPipeline:
             all_chunks: list[tuple[WikiArticle, Any]] = []
             for article in articles_to_process:
                 try:
-                    chunks = self.chunker.chunk_markdown(article.content, article.title)
+                    chunks = self.chunker.chunk_markdown(
+                        article.content,
+                        article.title,
+                        infobox=article.infobox,
+                        infobox_links=article.infobox_links,
+                    )
                     for chunk in chunks:
                         all_chunks.append((article, chunk))
                 except Exception as e:
@@ -408,9 +413,13 @@ class IngestionPipeline:
             chunk_data_list = []
             valid_embeddings = []
             for article, chunk, embedding in valid_chunks_with_embeddings:
-                # Merge extracted metadata with article_last_updated for change detection
-                chunk_metadata = getattr(chunk, "metadata", {})
-                chunk_metadata["article_last_updated"] = article.last_updated
+                # Build complete metadata (shared with chunk.py CLI)
+                extracted_metadata = getattr(chunk, "metadata", {})
+                chunk_metadata = build_chunk_metadata(
+                    extracted_metadata=extracted_metadata,
+                    article_last_updated=article.last_updated,
+                    links=chunk.links,
+                )
 
                 chunk_data: ChunkData = {
                     "id": generate_chunk_id(article.wiki_id, chunk.chunk_index),

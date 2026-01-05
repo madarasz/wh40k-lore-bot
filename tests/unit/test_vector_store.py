@@ -47,10 +47,8 @@ def sample_chunks():
             "chunk_text": "The Blood Angels are a Space Marine chapter...",
             "chunk_index": 0,
             "metadata": {
-                "faction": "Space Marines",
-                "era": "Great Crusade",
-                "spoiler_flag": False,
-                "content_type": "lore",
+                "article_last_updated": "2024-01-15T10:30:00Z",
+                "links": ["Space Marines", "Sanguinius", "Baal"],
             },
         },
         {
@@ -61,10 +59,8 @@ def sample_chunks():
             "chunk_text": "During the Horus Heresy, Sanguinius...",
             "chunk_index": 1,
             "metadata": {
-                "faction": "Space Marines",
-                "era": "Horus Heresy",
-                "spoiler_flag": True,
-                "content_type": "lore",
+                "article_last_updated": "2024-01-15T10:30:00Z",
+                "links": ["Horus Heresy", "Sanguinius", "Terra"],
             },
         },
         {
@@ -75,9 +71,7 @@ def sample_chunks():
             "chunk_text": "Orks are a warlike, crude, and highly aggressive race...",
             "chunk_index": 0,
             "metadata": {
-                "faction": "Orks",
-                "spoiler_flag": False,
-                "content_type": "lore",
+                "article_last_updated": "2024-01-20T15:45:00Z",
             },
         },
     ]
@@ -150,12 +144,11 @@ class TestAddChunks:
         assert len(call_args.kwargs["metadatas"]) == 3
         assert len(call_args.kwargs["documents"]) == 3
 
-        # Verify metadata structure
+        # Verify metadata structure (new schema)
         metadata_0 = call_args.kwargs["metadatas"][0]
         assert metadata_0["article_title"] == "Blood Angels"
-        assert metadata_0["faction"] == "Space Marines"
-        assert metadata_0["era"] == "Great Crusade"
-        assert metadata_0["spoiler_flag"] is False
+        assert metadata_0["article_last_updated"] == "2024-01-15T10:30:00Z"
+        assert "links" in metadata_0  # Links stored as JSON string
 
     def test_add_chunks_length_mismatch(self, vector_store, sample_chunks, sample_embeddings):
         """Test error when chunks and embeddings length don't match."""
@@ -183,8 +176,7 @@ class TestAddChunks:
                 "chunk_text": f"Test content {i}",
                 "chunk_index": i,
                 "metadata": {
-                    "spoiler_flag": False,
-                    "content_type": "lore",
+                    "article_last_updated": "2024-01-15T10:30:00Z",
                 },
             }
             chunks.append(chunk)
@@ -201,8 +193,8 @@ class TestAddChunks:
         assert len(call_args_list[1].kwargs["ids"]) == 1000
         assert len(call_args_list[2].kwargs["ids"]) == 500
 
-    def test_add_chunks_optional_metadata(self, vector_store):
-        """Test adding chunks with optional metadata fields missing."""
+    def test_add_chunks_without_links(self, vector_store):
+        """Test adding chunks without links field."""
         chunk: ChunkData = {
             "id": "chunk-1",
             "wiki_page_id": "page-1",
@@ -211,21 +203,19 @@ class TestAddChunks:
             "chunk_text": "Test content",
             "chunk_index": 0,
             "metadata": {
-                "spoiler_flag": False,
-                "content_type": "lore",
-                # faction and era are optional and missing
+                "article_last_updated": "2024-01-15T10:30:00Z",
+                # No links field
             },
         }
         embedding = np.random.rand(1536).astype(np.float32)
 
         vector_store.add_chunks([chunk], [embedding])
 
-        # Verify metadata doesn't include optional fields
+        # Verify metadata doesn't include links
         call_args = vector_store.collection.add.call_args
         metadata = call_args.kwargs["metadatas"][0]
-        assert "faction" not in metadata
-        assert "era" not in metadata
-        assert metadata["spoiler_flag"] is False
+        assert "links" not in metadata
+        assert metadata["article_last_updated"] == "2024-01-15T10:30:00Z"
 
     def test_add_chunks_failure(self, vector_store, sample_chunks, sample_embeddings):
         """Test handling of insertion failure."""
@@ -247,19 +237,18 @@ class TestQuery:
             "metadatas": [
                 [
                     {
+                        "wiki_page_id": "page-1",
                         "article_title": "Blood Angels",
                         "section_path": "History",
                         "chunk_index": 0,
-                        "faction": "Space Marines",
-                        "spoiler_flag": False,
-                        "content_type": "lore",
+                        "article_last_updated": "2024-01-15T10:30:00Z",
                     },
                     {
+                        "wiki_page_id": "page-2",
                         "article_title": "Orks",
                         "section_path": "Overview",
                         "chunk_index": 0,
-                        "spoiler_flag": False,
-                        "content_type": "lore",
+                        "article_last_updated": "2024-01-20T15:45:00Z",
                     },
                 ]
             ],
@@ -292,14 +281,14 @@ class TestQuery:
         }
 
         query_embedding = np.random.rand(1536).astype(np.float32)
-        filters = {"faction": "Space Marines", "spoiler_flag": False}
+        filters = {"wiki_page_id": "page-1", "section_path": "Infobox"}
 
         vector_store.query(query_embedding, n_results=10, filters=filters)
 
         # Verify filters passed to collection.query
         # Compound filters are converted to $and format
         call_args = vector_store.collection.query.call_args
-        expected_filters = {"$and": [{"faction": "Space Marines"}, {"spoiler_flag": False}]}
+        expected_filters = {"$and": [{"wiki_page_id": "page-1"}, {"section_path": "Infobox"}]}
         assert call_args.kwargs["where"] == expected_filters
 
     def test_query_empty_results(self, vector_store):
@@ -365,12 +354,11 @@ class TestUtilityMethods:
             "ids": ["chunk-1"],
             "metadatas": [
                 {
+                    "wiki_page_id": "page-1",
                     "article_title": "Blood Angels",
                     "section_path": "History",
                     "chunk_index": 0,
-                    "faction": "Space Marines",
-                    "spoiler_flag": False,
-                    "content_type": "lore",
+                    "article_last_updated": "2024-01-15T10:30:00Z",
                 }
             ],
             "documents": ["Blood Angels text..."],
@@ -381,7 +369,7 @@ class TestUtilityMethods:
         assert chunk is not None
         assert chunk["id"] == "chunk-1"
         assert chunk["article_title"] == "Blood Angels"
-        assert chunk["metadata"]["faction"] == "Space Marines"
+        assert chunk["metadata"]["article_last_updated"] == "2024-01-15T10:30:00Z"
 
     def test_get_by_id_not_found(self, vector_store):
         """Test get by ID when chunk not found."""
@@ -464,8 +452,8 @@ class TestUtilityMethods:
 class TestMetadataConversion:
     """Test metadata conversion methods."""
 
-    def test_chunk_to_metadata_all_fields(self, vector_store):
-        """Test converting ChunkData to metadata with all fields."""
+    def test_chunk_to_metadata_with_links(self, vector_store):
+        """Test converting ChunkData to metadata with links."""
         chunk: ChunkData = {
             "id": "chunk-1",
             "wiki_page_id": "page-1",
@@ -474,10 +462,8 @@ class TestMetadataConversion:
             "chunk_text": "Test content",
             "chunk_index": 5,
             "metadata": {
-                "faction": "Space Marines",
-                "era": "Great Crusade",
-                "spoiler_flag": True,
-                "content_type": "lore",
+                "article_last_updated": "2024-01-15T10:30:00Z",
+                "links": ["Space Marines", "Sanguinius"],
             },
         }
 
@@ -486,13 +472,14 @@ class TestMetadataConversion:
         assert metadata["article_title"] == "Blood Angels"
         assert metadata["section_path"] == "History > Founding"
         assert metadata["chunk_index"] == 5
-        assert metadata["faction"] == "Space Marines"
-        assert metadata["era"] == "Great Crusade"
-        assert metadata["spoiler_flag"] is True
-        assert metadata["content_type"] == "lore"
+        assert metadata["article_last_updated"] == "2024-01-15T10:30:00Z"
+        # Links should be stored as JSON string
+        import json
 
-    def test_chunk_to_metadata_optional_fields_missing(self, vector_store):
-        """Test converting ChunkData with optional fields missing."""
+        assert json.loads(metadata["links"]) == ["Space Marines", "Sanguinius"]
+
+    def test_chunk_to_metadata_without_links(self, vector_store):
+        """Test converting ChunkData without links."""
         chunk: ChunkData = {
             "id": "chunk-1",
             "wiki_page_id": "page-1",
@@ -501,84 +488,70 @@ class TestMetadataConversion:
             "chunk_text": "Test content",
             "chunk_index": 0,
             "metadata": {
-                "spoiler_flag": False,
-                "content_type": "lore",
-            },
-        }
-
-        metadata = vector_store._chunk_to_metadata(chunk)
-
-        assert "faction" not in metadata
-        assert "era" not in metadata
-        assert metadata["spoiler_flag"] is False
-        assert metadata["content_type"] == "lore"
-
-    def test_chunk_to_metadata_none_values_excluded(self, vector_store):
-        """Test that None values from metadata extractor are excluded.
-
-        The metadata extractor returns faction: None when no faction is detected.
-        ChromaDB rejects None values, so they must be excluded from metadata.
-        This is different from keys being missing - keys exist but have None value.
-        """
-        chunk: ChunkData = {
-            "id": "chunk-1",
-            "wiki_page_id": "page-1",
-            "article_title": "Test Article",
-            "section_path": "Test Section",
-            "chunk_text": "Test content",
-            "chunk_index": 0,
-            "metadata": {
-                "faction": None,  # Explicitly None (from metadata extractor)
-                "era": None,  # Explicitly None
-                "spoiler_flag": None,  # None should default to False
-                "content_type": None,  # None should default to "lore"
-                "article_last_updated": None,  # None should be excluded
-            },
-        }
-
-        metadata = vector_store._chunk_to_metadata(chunk)
-
-        # None values should NOT appear in metadata (ChromaDB rejects them)
-        assert "faction" not in metadata
-        assert "era" not in metadata
-        assert "article_last_updated" not in metadata
-        # Required fields should have defaults when None
-        assert metadata["spoiler_flag"] is False
-        assert metadata["content_type"] == "lore"
-        # No None values allowed in final metadata
-        for key, value in metadata.items():
-            assert value is not None, f"Metadata key '{key}' has None value"
-
-    def test_chunk_to_metadata_with_article_last_updated(self, vector_store):
-        """Test that article_last_updated is included for change detection."""
-        chunk: ChunkData = {
-            "id": "chunk-1",
-            "wiki_page_id": "page-1",
-            "article_title": "Test Article",
-            "section_path": "Test Section",
-            "chunk_text": "Test content",
-            "chunk_index": 0,
-            "metadata": {
-                "spoiler_flag": False,
-                "content_type": "lore",
                 "article_last_updated": "2024-01-15T10:30:00Z",
             },
         }
 
         metadata = vector_store._chunk_to_metadata(chunk)
 
+        assert "links" not in metadata
         assert metadata["article_last_updated"] == "2024-01-15T10:30:00Z"
+
+    def test_chunk_to_metadata_empty_links(self, vector_store):
+        """Test that empty links list is not stored."""
+        chunk: ChunkData = {
+            "id": "chunk-1",
+            "wiki_page_id": "page-1",
+            "article_title": "Test Article",
+            "section_path": "Test Section",
+            "chunk_text": "Test content",
+            "chunk_index": 0,
+            "metadata": {
+                "article_last_updated": "2024-01-15T10:30:00Z",
+                "links": [],  # Empty list
+            },
+        }
+
+        metadata = vector_store._chunk_to_metadata(chunk)
+
+        # Empty links should not be stored
+        assert "links" not in metadata
+
+    def test_chunk_to_metadata_none_values_excluded(self, vector_store):
+        """Test that None values are excluded from metadata."""
+        chunk: ChunkData = {
+            "id": "chunk-1",
+            "wiki_page_id": "page-1",
+            "article_title": "Test Article",
+            "section_path": "Test Section",
+            "chunk_text": "Test content",
+            "chunk_index": 0,
+            "metadata": {
+                "article_last_updated": None,  # None should be excluded
+                "links": None,  # None should be excluded
+            },
+        }
+
+        metadata = vector_store._chunk_to_metadata(chunk)
+
+        # None values should NOT appear in metadata (ChromaDB rejects them)
+        assert "article_last_updated" not in metadata
+        assert "links" not in metadata
+        # No None values allowed in final metadata
+        for key, value in metadata.items():
+            assert value is not None, f"Metadata key '{key}' has None value"
 
     def test_metadata_to_chunk(self, vector_store):
         """Test converting metadata back to ChunkData."""
+        import json
+
         metadata = {
+            "wiki_page_id": "page-1",
             "article_title": "Blood Angels",
             "section_path": "History",
             "chunk_index": 3,
-            "faction": "Space Marines",
-            "era": "Great Crusade",
-            "spoiler_flag": True,
-            "content_type": "lore",
+            "article_last_updated": "2024-01-15T10:30:00Z",
+            "links": json.dumps(["Space Marines", "Sanguinius"]),
         }
 
         chunk = vector_store._metadata_to_chunk(
@@ -588,11 +561,29 @@ class TestMetadataConversion:
         )
 
         assert chunk["id"] == "chunk-1"
+        assert chunk["wiki_page_id"] == "page-1"
         assert chunk["article_title"] == "Blood Angels"
         assert chunk["section_path"] == "History"
         assert chunk["chunk_index"] == 3
         assert chunk["chunk_text"] == "Test content"
-        assert chunk["metadata"]["faction"] == "Space Marines"
-        assert chunk["metadata"]["era"] == "Great Crusade"
-        assert chunk["metadata"]["spoiler_flag"] is True
-        assert chunk["metadata"]["content_type"] == "lore"
+        assert chunk["metadata"]["article_last_updated"] == "2024-01-15T10:30:00Z"
+        assert chunk["metadata"]["links"] == ["Space Marines", "Sanguinius"]
+
+    def test_metadata_to_chunk_without_links(self, vector_store):
+        """Test converting metadata without links."""
+        metadata = {
+            "wiki_page_id": "page-1",
+            "article_title": "Test Article",
+            "section_path": "Overview",
+            "chunk_index": 0,
+            "article_last_updated": "2024-01-15T10:30:00Z",
+        }
+
+        chunk = vector_store._metadata_to_chunk(
+            chunk_id="chunk-1",
+            metadata=metadata,
+            document="Test content",
+        )
+
+        assert "links" not in chunk["metadata"]
+        assert chunk["metadata"]["article_last_updated"] == "2024-01-15T10:30:00Z"

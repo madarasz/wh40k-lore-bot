@@ -72,20 +72,8 @@ class TestMetadataExtractionWithRealData:
         """Test metadata extraction from a Space Marines chunk."""
         metadata = extractor.extract_metadata(sample_space_marine_chunk)
 
-        # Verify faction detection (Ultramarines appears more frequently than Space Marines)
-        assert metadata["faction"] == "Ultramarines"
-
-        # Verify era detection
-        assert "Great Crusade" in metadata["eras"]
-
         # Verify character extraction
         assert "Roboute Guilliman" in metadata["character_names"]
-
-        # Verify content type (could be military due to "battles" and "campaign")
-        assert metadata["content_type"] in ["military", "lore", "technology"]
-
-        # Verify no spoilers
-        assert metadata["spoiler_flag"] is False
 
         # Verify source book extraction
         assert "Ultramarines" in metadata["source_books"]
@@ -97,12 +85,6 @@ class TestMetadataExtractionWithRealData:
     ) -> None:
         """Test metadata extraction from a Horus Heresy chunk."""
         metadata = extractor.extract_metadata(sample_horus_heresy_chunk)
-
-        # Verify faction detection (Space Marines should be most common)
-        assert metadata["faction"] in ["Space Marines", "Chaos Space Marines"]
-
-        # Verify era detection
-        assert "Horus Heresy" in metadata["eras"]
 
         # Verify character extraction
         assert "Horus" in metadata["character_names"]
@@ -118,12 +100,6 @@ class TestMetadataExtractionWithRealData:
         """Test metadata extraction from a technology-focused chunk."""
         metadata = extractor.extract_metadata(sample_technology_chunk)
 
-        # Verify faction detection
-        assert metadata["faction"] == "Space Marines"
-
-        # Verify content type classification
-        assert metadata["content_type"] == "technology"
-
         # Verify source book extraction
         assert "Space Marines" in metadata["source_books"]
 
@@ -135,19 +111,19 @@ class TestMetadataExtractionWithRealData:
         # Create multiple test chunks with different characteristics
         chunks = [
             Chunk(
-                chunk_text="The Ultramarines Space Marines fought bravely.",
+                chunk_text="The [[Ultramarines]] Space Marines fought bravely.",
                 article_title="Test1",
                 section_path="Test",
                 chunk_index=0,
             ),
             Chunk(
-                chunk_text="The Tyranids invaded the sector.",
+                chunk_text="The [[Tyranids]] invaded the sector with [[Hive Fleet Leviathan]].",
                 article_title="Test2",
                 section_path="Test",
                 chunk_index=0,
             ),
             Chunk(
-                chunk_text="During the Great Crusade, many worlds were liberated.",
+                chunk_text="During the crusade, many worlds were liberated.",
                 article_title="Test3",
                 section_path="Test",
                 chunk_index=0,
@@ -160,13 +136,9 @@ class TestMetadataExtractionWithRealData:
         # Verify all extractions succeeded
         assert len(metadata_results) == 3
 
-        # Verify faction detection worked for at least some chunks
-        factions_detected = sum(1 for m in metadata_results if m["faction"] is not None)
-        assert factions_detected >= 2
-
-        # Verify era detection worked for at least one chunk
-        eras_detected = sum(1 for m in metadata_results if len(m["eras"]) > 0)
-        assert eras_detected >= 1
+        # Verify character extraction worked for chunks with wiki links
+        chars_detected = sum(len(m["character_names"]) for m in metadata_results)
+        assert chars_detected >= 3  # Ultramarines, Tyranids, Hive Fleet Leviathan
 
     @pytest.mark.skipif(
         not Path("data/markdown-archive").exists(),
@@ -209,20 +181,12 @@ class TestMetadataExtractionWithRealData:
         metadata = extractor.extract_metadata(test_chunk)
 
         # Verify basic structure
-        assert "faction" in metadata
-        assert "eras" in metadata
         assert "character_names" in metadata
-        assert "content_type" in metadata
-        assert "spoiler_flag" in metadata
         assert "source_books" in metadata
 
         # Log results for manual verification
         print(f"\nMetadata extracted from {test_file.name}:")
-        print(f"  Faction: {metadata['faction']}")
-        print(f"  Eras: {metadata['eras']}")
         print(f"  Character Names: {metadata['character_names']}")
-        print(f"  Content Type: {metadata['content_type']}")
-        print(f"  Spoiler Flag: {metadata['spoiler_flag']}")
         print(f"  Source Books: {metadata['source_books']}")
 
     @pytest.mark.skipif(
@@ -266,18 +230,9 @@ class TestMetadataExtractionWithRealData:
         assert len(results) == len(wiki_files)
 
         # Calculate statistics
-        total_factions = sum(1 for _, m in results if m["faction"] is not None)
-        total_eras = sum(len(m["eras"]) for _, m in results)
         total_characters = sum(len(m["character_names"]) for _, m in results)
         total_books = sum(len(m["source_books"]) for _, m in results)
 
         print(f"\nMetadata extraction statistics ({len(wiki_files)} files):")
-        print(f"  Files with faction detected: {total_factions}/{len(wiki_files)}")
-        print(f"  Total eras detected: {total_eras}")
         print(f"  Total character names extracted: {total_characters}")
         print(f"  Total source books found: {total_books}")
-
-        # Basic sanity checks
-        assert total_factions > 0, "Should detect at least one faction"
-        # Note: Character names may not appear in first 1500 chars of all articles
-        # This is acceptable - we're just verifying the extraction logic works
