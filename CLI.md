@@ -52,7 +52,9 @@ poetry run parse-wiki <xml_path> [--page-ids-file PATH]
 
 ### ingest
 
-Full ingestion pipeline - loads markdown from archive, chunks, extracts metadata, generates embeddings, and stores in Chroma.
+Full ingestion pipeline - loads markdown from archive, chunks, extracts metadata, generates embeddings, stores in Chroma, and builds BM25 index.
+
+The pipeline automatically creates both vector embeddings (for semantic search) and a BM25 keyword index (for exact term matching) to enable hybrid retrieval.
 
 ```bash
 poetry run ingest [OPTIONS]
@@ -111,7 +113,11 @@ poetry run embed <chunks_file> [OPTIONS]
 
 ### store
 
-Step 3: Store embeddings in Chroma vector database.
+Step 3: Store embeddings in Chroma vector database and build BM25 index.
+
+Stores embeddings in ChromaDB for vector similarity search and automatically builds
+a BM25 keyword search index for hybrid retrieval. The BM25 index is built after
+vector storage completes successfully.
 
 ```bash
 poetry run store <embeddings_file> [OPTIONS]
@@ -123,6 +129,39 @@ poetry run store <embeddings_file> [OPTIONS]
 **Options:**
 - `--chroma-path TEXT` - Path to Chroma vector database (default: data/chroma-db/)
 - `--batch-size INTEGER` - Number of chunks to store per batch (default: 1000)
+- `--force` - Force re-ingestion even if article hasn't changed
+
+**BM25 Indexing:**
+- BM25 index is built automatically after vector storage
+- Index saved to path specified by `BM25_INDEX_PATH` env var (default: data/bm25-index/bm25_index.pkl)
+- If BM25 indexing fails, vector storage still succeeds (graceful degradation)
+- Use `build-bm25` command to rebuild index if needed
+
+### build-bm25
+
+Standalone BM25 index builder (optional/debugging).
+
+Build a BM25 keyword search index from chunks JSON file. Useful for debugging
+or rebuilding the BM25 index without re-running the full storage pipeline.
+
+```bash
+poetry run build-bm25 <chunks_file> [OPTIONS]
+```
+
+**Arguments:**
+- `chunks_file` - Path to chunks JSON file (output of `chunk` command)
+
+**Options:**
+- `--output PATH` - Output path for BM25 index (default: from BM25_INDEX_PATH env var)
+
+**Examples:**
+```bash
+# Build BM25 index from chunks
+poetry run build-bm25 data/chunks.json
+
+# Custom output path
+poetry run build-bm25 data/chunks.json --output data/my-bm25-index.pkl
+```
 
 ---
 
@@ -150,9 +189,17 @@ poetry run ingest --wiki-ids-file data/test-bed-pages.txt
 ### Step-by-Step Pipeline (Debugging)
 
 ```bash
+# Step 1: Chunk markdown articles
 poetry run chunk --output data/chunks.json
+
+# Step 2: Generate embeddings
 poetry run embed data/chunks.json --output data/embeddings.json
+
+# Step 3: Store embeddings and build BM25 index
 poetry run store data/embeddings.json
+
+# Optional: Rebuild BM25 index separately (if needed)
+poetry run build-bm25 data/chunks.json
 ```
 
 ---
