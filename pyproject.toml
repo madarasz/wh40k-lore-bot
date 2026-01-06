@@ -101,7 +101,7 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "-v --cov=src --cov-report=html --cov-report=term-missing -m 'not e2e'"
+addopts = "-v --cov=src --cov-report=html --cov-report=term-missing -m 'not e2e and not integration'"
 asyncio_mode = "auto"
 markers = [
     "e2e: End-to-end CLI workflow tests (not run by default)",

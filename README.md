@@ -118,7 +118,7 @@ poetry run pytest -m integration
 ```
 
 ```bash
-# Create test date for e2e flows
+# Create test data for e2e flows
 poetry run python tests/e2e/fixtures/extract_minimal_xml.py
 
 # Run e2e tests with real APIs (costs money)

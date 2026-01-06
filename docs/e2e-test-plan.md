@@ -191,14 +191,17 @@ class TestCLIWorkflowE2E:
         # Set archive path via environment or create temporary config
         result = runner.invoke(parse_wiki, [
             str(e2e_test_xml_path),
-            "--page-ids-file", str(self.artifacts['test_bed_file'])
-        ], env={'MARKDOWN_ARCHIVE_PATH': str(markdown_dir)})
+            "--page-ids-file", str(self.artifacts['test_bed_file']),
+            "--archive-path", str(markdown_dir)
+        ])
 
         # Basic validation
         assert result.exit_code == 0, f"Command failed: {result.output}"
 
-        # Note: parse_wiki uses default data/markdown-archive/, need to handle
-        # Check actual output location based on CLI implementation
+        # Verify markdown files were created
+        assert markdown_dir.exists()
+        markdown_files = list(markdown_dir.glob("*.md"))
+        assert len(markdown_files) > 0
 
         self.artifacts['markdown_dir'] = markdown_dir
 
@@ -337,8 +340,9 @@ class TestCLIWorkflowE2E:
         # First parse wiki to the ingest markdown directory
         result = runner.invoke(parse_wiki, [
             str(e2e_test_xml_path),
-            "--page-ids-file", str(self.artifacts['test_bed_file'])
-        ], env={'MARKDOWN_ARCHIVE_PATH': str(ingest_markdown_dir)})
+            "--page-ids-file", str(self.artifacts['test_bed_file']),
+            "--archive-path", str(ingest_markdown_dir)
+        ])
 
         assert result.exit_code == 0, f"Parse wiki failed: {result.output}"
 
