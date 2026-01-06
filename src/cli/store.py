@@ -1,6 +1,7 @@
 """CLI command for storing embeddings in vector database."""
 
 import json
+import os
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
@@ -10,7 +11,9 @@ import numpy as np
 import structlog
 from tqdm import tqdm
 
+from src.ingestion.models import Chunk
 from src.rag.vector_store import ChromaVectorStore, ChunkData
+from src.repositories.bm25_repository import BM25Repository
 
 logger = structlog.get_logger(__name__)
 
@@ -31,6 +34,29 @@ def _get_article_last_updated(entries: list[dict[str, Any]]) -> str | None:
         return None
     last_updated: str | None = entries[0].get("metadata", {}).get("article_last_updated")
     return last_updated
+
+
+def _convert_to_chunks(embeddings_list: list[dict[str, Any]]) -> list[Chunk]:
+    """Convert embeddings entries to Chunk objects for BM25 indexing.
+
+    Args:
+        embeddings_list: List of embedding entries from embeddings JSON
+
+    Returns:
+        List of Chunk objects
+    """
+    chunks: list[Chunk] = []
+    for entry in embeddings_list:
+        chunk = Chunk(
+            chunk_text=entry["chunk_text"],
+            article_title=entry["article_title"],
+            section_path=entry["section_path"],
+            chunk_index=entry["chunk_index"],
+            links=entry.get("metadata", {}).get("links", []),
+            wiki_page_id=entry.get("wiki_page_id"),
+        )
+        chunks.append(chunk)
+    return chunks
 
 
 @click.command()
@@ -59,10 +85,11 @@ def store(  # noqa: PLR0912, PLR0915
     batch_size: int,
     force: bool,
 ) -> None:
-    """Store embeddings in Chroma vector database.
+    """Store embeddings in Chroma vector database and build BM25 index.
 
     Reads embeddings JSON file (from the embed command) and stores them
-    in the Chroma vector database along with chunk metadata.
+    in the Chroma vector database along with chunk metadata. Also builds
+    a BM25 keyword search index for hybrid retrieval.
 
     Supports incremental updates: articles already in the database with the
     same last_updated timestamp are skipped. Use --force to re-ingest all.
@@ -72,7 +99,7 @@ def store(  # noqa: PLR0912, PLR0915
     Examples:
 
         \b
-        # Store embeddings (skips unchanged articles)
+        # Store embeddings and build BM25 index (skips unchanged articles)
         poetry run store data/embeddings.json
 
         \b
@@ -167,12 +194,25 @@ def store(  # noqa: PLR0912, PLR0915
     click.echo(f"  Skipped (unchanged): {len(articles_skipped)}")
     click.echo()
 
+    # Check if BM25 index exists
+    bm25_index_path_str = os.getenv("BM25_INDEX_PATH", "data/bm25-index/bm25_index.pkl")
+    bm25_index_path = Path(bm25_index_path_str)
+    bm25_index_exists = bm25_index_path.exists()
+
     # Nothing to do?
     if not articles_to_add and not articles_to_update:
-        click.echo("=" * 80)
-        click.echo("No changes detected - nothing to store!")
-        click.echo("=" * 80)
-        return
+        if bm25_index_exists:
+            click.echo("=" * 80)
+            click.echo("No changes detected - nothing to store!")
+            click.echo("=" * 80)
+            return
+        else:
+            # No vector changes but BM25 index doesn't exist - build it
+            click.echo("=" * 80)
+            click.echo("No vector database changes, but BM25 index missing")
+            click.echo("Building BM25 index from existing data...")
+            click.echo("=" * 80)
+            click.echo()
 
     # Delete old chunks for articles that will be updated
     if articles_to_update:
@@ -193,58 +233,106 @@ def store(  # noqa: PLR0912, PLR0915
     # Process in batches
     total_stored = 0
 
-    click.echo(f"Storing {len(chunks_to_store)} chunks...")
+    if chunks_to_store:
+        click.echo(f"Storing {len(chunks_to_store)} chunks...")
+
+        try:
+            for i in tqdm(range(0, len(chunks_to_store), batch_size), desc="Batches", unit="batch"):
+                batch = chunks_to_store[i : i + batch_size]
+
+                # Convert to ChunkData dicts and numpy arrays
+                chunk_data_list: list[ChunkData] = []
+                embeddings = []
+
+                for entry in batch:
+                    chunk_data: ChunkData = {
+                        "id": entry["chunk_id"],
+                        "wiki_page_id": entry["wiki_page_id"],
+                        "article_title": entry["article_title"],
+                        "section_path": entry["section_path"],
+                        "chunk_text": entry["chunk_text"],
+                        "chunk_index": entry["chunk_index"],
+                        "metadata": entry.get("metadata", {}),
+                    }
+                    chunk_data_list.append(chunk_data)
+                    embeddings.append(np.array(entry["embedding"]))
+
+                # Store batch
+                vector_store.add_chunks(chunk_data_list, embeddings)
+                total_stored += len(chunk_data_list)
+
+        except KeyboardInterrupt:
+            click.echo()
+            click.echo("  Interrupted by user", err=True)
+            raise click.Abort() from None
+        except Exception as e:
+            click.echo()
+            click.echo(f"  Storage failed: {e}", err=True)
+            logger.error("storage_failed", error=str(e), exc_info=True)
+            raise click.Abort() from e
+
+        # Get final count
+        final_count = vector_store.count()
+
+        click.echo()
+        click.echo("=" * 80)
+        click.echo("Storage Complete!")
+        click.echo("=" * 80)
+        click.echo(f"  Articles Added: {len(articles_to_add)}")
+        click.echo(f"  Articles Updated: {len(articles_to_update)}")
+        click.echo(f"  Articles Skipped: {len(articles_skipped)}")
+        click.echo(f"  Chunks Stored: {total_stored}")
+        click.echo(f"  Total Chunks in Store: {final_count}")
+        click.echo(f"  Net Change: {final_count - initial_count:+d}")
+        click.echo(f"  Chroma Path: {chroma_path}")
+        click.echo()
+
+    # Build BM25 index
+    click.echo("=" * 80)
+    click.echo("Building BM25 Index")
+    click.echo("=" * 80)
+    click.echo()
 
     try:
-        for i in tqdm(range(0, len(chunks_to_store), batch_size), desc="Batches", unit="batch"):
-            batch = chunks_to_store[i : i + batch_size]
-
-            # Convert to ChunkData dicts and numpy arrays
-            chunk_data_list: list[ChunkData] = []
-            embeddings = []
-
-            for entry in batch:
-                chunk_data: ChunkData = {
-                    "id": entry["chunk_id"],
-                    "wiki_page_id": entry["wiki_page_id"],
-                    "article_title": entry["article_title"],
-                    "section_path": entry["section_path"],
-                    "chunk_text": entry["chunk_text"],
-                    "chunk_index": entry["chunk_index"],
-                    "metadata": entry.get("metadata", {}),
-                }
-                chunk_data_list.append(chunk_data)
-                embeddings.append(np.array(entry["embedding"]))
-
-            # Store batch
-            vector_store.add_chunks(chunk_data_list, embeddings)
-            total_stored += len(chunk_data_list)
-
-    except KeyboardInterrupt:
+        # Convert embeddings to Chunk objects
+        click.echo("Converting embeddings to chunks...")
+        chunks = _convert_to_chunks(embeddings_list)
+        click.echo(f"  Converted {len(chunks)} chunks")
         click.echo()
-        click.echo("  Interrupted by user", err=True)
-        raise click.Abort() from None
+
+        # Initialize BM25 repository
+        bm25_repo = BM25Repository()
+
+        # Build index
+        click.echo("Building BM25 index...")
+        bm25_repo.build_index(chunks)
+
+        # Get index stats
+        stats = bm25_repo.get_index_stats()
+        click.echo("  Index built successfully")
+        click.echo(f"  Total chunks: {stats['total_chunks']}")
+        click.echo(f"  Unique tokens: {stats['unique_tokens']}")
+        click.echo()
+
+        # Save index
+        click.echo("Saving BM25 index to disk...")
+        bm25_repo.save_index(bm25_index_path)
+        click.echo(f"  Index saved to {bm25_index_path}")
+        click.echo(f"  File size: {bm25_index_path.stat().st_size / 1024:.1f} KB")
+        click.echo()
+
+        click.echo("=" * 80)
+        click.echo("BM25 Index Complete!")
+        click.echo("=" * 80)
+        click.echo()
+
     except Exception as e:
+        # Don't fail the whole operation if BM25 indexing fails
+        click.echo(f"  Warning: BM25 indexing failed: {e}", err=True)
+        logger.error("bm25_indexing_failed", error=str(e), exc_info=True)
+        click.echo("  Vector storage succeeded, but BM25 index was not created.")
+        click.echo("  You can rebuild the BM25 index later using: poetry run build-bm25")
         click.echo()
-        click.echo(f"  Storage failed: {e}", err=True)
-        logger.error("storage_failed", error=str(e), exc_info=True)
-        raise click.Abort() from e
-
-    # Get final count
-    final_count = vector_store.count()
-
-    click.echo()
-    click.echo("=" * 80)
-    click.echo("Storage Complete!")
-    click.echo("=" * 80)
-    click.echo(f"  Articles Added: {len(articles_to_add)}")
-    click.echo(f"  Articles Updated: {len(articles_to_update)}")
-    click.echo(f"  Articles Skipped: {len(articles_skipped)}")
-    click.echo(f"  Chunks Stored: {total_stored}")
-    click.echo(f"  Total Chunks in Store: {final_count}")
-    click.echo(f"  Net Change: {final_count - initial_count:+d}")
-    click.echo(f"  Chroma Path: {chroma_path}")
-    click.echo()
 
 
 if __name__ == "__main__":

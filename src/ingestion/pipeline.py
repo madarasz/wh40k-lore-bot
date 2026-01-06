@@ -1,6 +1,7 @@
 """Complete ingestion pipeline orchestration for markdown-based wiki data processing."""
 
 import json
+import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -13,9 +14,10 @@ from tqdm import tqdm
 from src.ingestion.embedding_generator import EmbeddingGenerator
 from src.ingestion.markdown_loader import MarkdownLoader
 from src.ingestion.metadata_extractor import MetadataExtractor
-from src.ingestion.models import WikiArticle, build_chunk_metadata
+from src.ingestion.models import Chunk, WikiArticle, build_chunk_metadata
 from src.ingestion.text_chunker import MarkdownChunker
 from src.rag.vector_store import ChromaVectorStore, ChunkData, generate_chunk_id
+from src.repositories.bm25_repository import BM25Repository
 from src.utils.exceptions import IngestionError
 
 logger = structlog.get_logger(__name__)
@@ -116,6 +118,9 @@ class IngestionPipeline:
         # Track processed wiki_page_ids in current run (for change detection without DB)
         self._processed_wiki_ids: set[str] = set()
 
+        # Track all processed chunks for BM25 index building
+        self._all_chunks: list[Chunk] = []
+
         self.logger.info(
             "ingestion_pipeline_initialized",
             archive_path=str(self.archive_path),
@@ -156,6 +161,7 @@ class IngestionPipeline:
         self.stats = IngestionStatistics()
         self.stats.start_time = time.time()
         self._processed_wiki_ids = set()
+        self._all_chunks = []  # Clear chunks from previous runs
 
         try:
             # Load articles from markdown archive
@@ -197,6 +203,10 @@ class IngestionPipeline:
 
             # Save summary report
             self._save_summary_report()
+
+            # Build BM25 index if not dry run and chunks were processed
+            if not dry_run and self._all_chunks:
+                self._build_bm25_index()
 
             # Log completion
             self.logger.info(
@@ -443,6 +453,12 @@ class IngestionPipeline:
                 )
                 raise IngestionError(f"Failed to add chunks to vector store: {e}") from e
 
+            # Collect chunks for BM25 index building (only successful ones)
+            for article, chunk, _ in valid_chunks_with_embeddings:
+                # Set wiki_page_id for proper chunk ID generation
+                chunk.wiki_page_id = article.wiki_id
+                self._all_chunks.append(chunk)
+
             # Update statistics
             self.stats.articles_processed += len(articles_to_process)
 
@@ -486,4 +502,51 @@ class IngestionPipeline:
             self.logger.error(
                 "summary_report_save_failed",
                 error=str(e),
+            )
+
+    def _build_bm25_index(self) -> None:
+        """Build BM25 keyword search index from processed chunks.
+
+        Builds and saves BM25 index using all chunks collected during the pipeline run.
+        Errors are logged but don't fail the pipeline.
+        """
+        try:
+            self.logger.info(
+                "bm25_index_building_started",
+                total_chunks=len(self._all_chunks),
+            )
+
+            # Initialize BM25 repository
+            bm25_repo = BM25Repository()
+
+            # Build index
+            bm25_repo.build_index(self._all_chunks)
+
+            # Get index stats
+            stats = bm25_repo.get_index_stats()
+            self.logger.info(
+                "bm25_index_built",
+                total_chunks=stats["total_chunks"],
+                unique_tokens=stats["unique_tokens"],
+                index_built=stats["index_built"],
+            )
+
+            # Save index to disk
+            bm25_index_path_str = os.getenv("BM25_INDEX_PATH", "data/bm25-index/bm25_index.pkl")
+            bm25_index_path = Path(bm25_index_path_str)
+            bm25_repo.save_index(bm25_index_path)
+
+            file_size_kb = bm25_index_path.stat().st_size / 1024
+            self.logger.info(
+                "bm25_index_saved",
+                index_path=str(bm25_index_path),
+                file_size_kb=round(file_size_kb, 1),
+            )
+
+        except Exception as e:
+            # Don't fail the whole pipeline if BM25 indexing fails
+            self.logger.error(
+                "bm25_index_build_failed",
+                error=str(e),
+                exc_info=True,
             )

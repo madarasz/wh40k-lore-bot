@@ -14,6 +14,7 @@ class Chunk:
         section_path: Hierarchical section path (e.g., "History > The Great Crusade")
         chunk_index: 0-based index of chunk within the article
         links: Internal wiki links found in this chunk's text
+        wiki_page_id: Optional wiki page ID for chunk ID generation
     """
 
     chunk_text: str
@@ -21,6 +22,7 @@ class Chunk:
     section_path: str
     chunk_index: int
     links: list[str] = field(default_factory=list)
+    wiki_page_id: str | None = None
 
 
 def build_chunk_metadata(
