@@ -1,7 +1,6 @@
 """CLI command for storing embeddings in vector database."""
 
 import json
-import os
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
@@ -194,9 +193,9 @@ def store(  # noqa: PLR0912, PLR0915
     click.echo(f"  Skipped (unchanged): {len(articles_skipped)}")
     click.echo()
 
-    # Check if BM25 index exists
-    bm25_index_path_str = os.getenv("BM25_INDEX_PATH", "data/bm25-index/bm25_index.pkl")
-    bm25_index_path = Path(bm25_index_path_str)
+    # BM25 index path (store alongside vector DB in chroma directory)
+    chroma_dir = Path(chroma_path)
+    bm25_index_path = chroma_dir / "bm25_index.pkl"
     bm25_index_exists = bm25_index_path.exists()
 
     # Nothing to do?
@@ -316,6 +315,8 @@ def store(  # noqa: PLR0912, PLR0915
 
         # Save index
         click.echo("Saving BM25 index to disk...")
+        # Ensure parent directory exists
+        bm25_index_path.parent.mkdir(parents=True, exist_ok=True)
         bm25_repo.save_index(bm25_index_path)
         click.echo(f"  Index saved to {bm25_index_path}")
         click.echo(f"  File size: {bm25_index_path.stat().st_size / 1024:.1f} KB")

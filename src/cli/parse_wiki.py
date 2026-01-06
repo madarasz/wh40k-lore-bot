@@ -18,14 +18,22 @@ logger = structlog.get_logger(__name__)
     type=click.Path(exists=True, path_type=Path),
     help="Optional file containing page IDs to filter (one per line)",
 )
-def parse_wiki(xml_path: Path, page_ids_file: Path | None) -> None:
+@click.option(
+    "--archive-path",
+    type=click.Path(path_type=Path),
+    default="data/markdown-archive",
+    help="Output directory for markdown files (default: data/markdown-archive)",
+)
+def parse_wiki(xml_path: Path, page_ids_file: Path | None, archive_path: Path) -> None:
     """Parse MediaWiki XML export and convert articles to markdown.
 
     Args:
         xml_path: Path to the XML export file
         page_ids_file: Optional file with page IDs to filter (one per line)
+        archive_path: Output directory for markdown files
     """
     click.echo(f"Parsing wiki XML from: {xml_path}")
+    click.echo(f"Output directory: {archive_path}")
 
     # Load page IDs filter if provided
     page_ids = None
@@ -43,7 +51,7 @@ def parse_wiki(xml_path: Path, page_ids_file: Path | None) -> None:
     try:
         for article in parser.parse_xml_export(xml_path, page_ids):
             # Save article to markdown archive
-            save_markdown_file(article)
+            save_markdown_file(article, archive_path)
             articles_saved += 1
 
             # Show progress every 100 articles

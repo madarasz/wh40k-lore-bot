@@ -26,8 +26,19 @@ All components (RAG engine, Discord bot, CLI tools, tests) reside in a single re
   - Discord command handling → orchestrator → response
 - **Manual Testing:** Discord bot interaction testing (conversational flows, error handling)
 - **Testing Tools:** pytest, pytest-cov, pytest-mock, pytest-asyncio
+- **End-to-End CLI Tests:** Complete workflow validation using minimal real data:
+  - Separate test suite (`tests/e2e/`) with dedicated marker (`@pytest.mark.e2e`)
+  - Not run by default (excluded from coverage and CI fast paths)
+  - Run explicitly via `poetry run pytest -m e2e`
+  - Uses minimal XML test file (~10 pages) stored in `./test-data/`
+  - Validates all CLI commands: build-test-bed, parse-wiki, chunk, embed, store, build-bm25, ingest
+  - Sequential test execution with shared artifacts (test-bed → markdown → chunks → embeddings → storage)
+  - Skips dependent tests if prerequisites fail (graceful degradation)
+  - Tests requiring external APIs (embed, ingest) conditionally skip if credentials unavailable
+  - Outputs stored in `./test-data/e2e-outputs/` for post-test inspection
+  - Full pipeline testing including real embedding generation and storage
 
-**Rationale:** Unit tests catch logic bugs early, integration tests validate end-to-end workflows, manual testing ensures Discord UX quality.
+**Rationale:** Unit tests catch logic bugs early, integration tests validate end-to-end workflows, manual testing ensures Discord UX quality. E2E tests catch integration issues between CLI commands and validate the full data pipeline with realistic (but minimal) data. Separating them from unit tests keeps CI fast while providing comprehensive validation before releases.
 
 ## Additional Technical Assumptions and Requests
 
