@@ -253,7 +253,7 @@ class TestBM25Integration:
 
         # Verify index stats
         stats = repository.get_index_stats()
-        assert stats["chunk_count"] >= 50
+        assert stats["total_chunks"] >= 50
 
     def test_search_proper_nouns_guilliman(
         self,
@@ -387,7 +387,7 @@ class TestBM25Integration:
 
             # Verify stats match
             loaded_stats = new_repo.get_index_stats()
-            assert loaded_stats["chunk_count"] == original_stats["chunk_count"]
+            assert loaded_stats["total_chunks"] == original_stats["total_chunks"]
 
             # Verify search results match
             loaded_results = new_repo.search(query, top_k=10)
@@ -439,13 +439,13 @@ class TestBM25Integration:
         repository.build_index(initial_chunks)
 
         initial_stats = repository.get_index_stats()
-        assert initial_stats["chunk_count"] == 30
+        assert initial_stats["total_chunks"] == 30
 
         # Update with all chunks
         repository.update_index(realistic_chunks)
 
         updated_stats = repository.get_index_stats()
-        assert updated_stats["chunk_count"] >= 50
+        assert updated_stats["total_chunks"] >= 50
 
         # Search should work with updated index
         results = repository.search("Guilliman")
