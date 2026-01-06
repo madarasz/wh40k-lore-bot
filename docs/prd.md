@@ -87,7 +87,7 @@ The project uses the Fandom Wiki XML export (173MB, ~10,000-15,000 articles) as 
 
 **Administration & Monitoring:**
 
-- **FR29:** System SHALL provide CLI commands for data ingestion, index rebuilding, and database management
+- **FR29:** System SHALL provide CLI commands for data ingestion, index rebuilding, and database management **with end-to-end test coverage validating complete workflows**
 - **FR30:** System SHALL log errors, warnings, and info events to structured logs (JSON format)
 - **FR31:** System SHALL track API usage and costs per LLM provider for monitoring
 
