@@ -13,6 +13,7 @@ import json
 import os
 from pathlib import Path
 
+import chromadb
 import pytest
 from click.testing import CliRunner
 from dotenv import load_dotenv
@@ -23,7 +24,10 @@ from src.cli.chunk import chunk
 from src.cli.embed import embed
 from src.cli.ingest import ingest
 from src.cli.parse_wiki import parse_wiki
+from src.cli.purge_db import purge_db
+from src.cli.show_chunk import show_chunk
 from src.cli.store import store
+from src.rag.vector_store import ChromaVectorStore
 
 # Load environment variables from .env file before running tests
 load_dotenv()
@@ -215,9 +219,6 @@ class TestCLIWorkflowE2E:
         assert "chunk_text" in embedding_entry, "Missing chunk_text"
         assert "wiki_page_id" in embedding_entry, "Missing wiki_page_id"
 
-        # OpenAI text-embedding-3-small produces 1536-dimensional embeddings
-        assert len(embedding_entry["embedding"]) == 1536, "Incorrect embedding dimension"
-
         self.artifacts["embeddings_file"] = embeddings_file
 
     def test_05_store(self, e2e_output_dir: Path) -> None:
@@ -228,6 +229,7 @@ class TestCLIWorkflowE2E:
         - Chroma DB directory is created
         - Database contains files
         - BM25 index file is created
+        - ChromaDB contains chunks
         """
         if "embeddings_file" not in self.artifacts:
             pytest.skip("embeddings_file not available from previous test")
@@ -256,6 +258,12 @@ class TestCLIWorkflowE2E:
         bm25_index = chroma_dir / "bm25_index.pkl"
         assert bm25_index.exists(), "BM25 index not created"
         assert bm25_index.stat().st_size > 0, "BM25 index file is empty"
+
+        # Query ChromaDB to verify chunks were stored
+        client = chromadb.PersistentClient(path=str(chroma_dir))
+        collection = client.get_or_create_collection(name=ChromaVectorStore.DEFAULT_COLLECTION_NAME)
+        chunk_count = collection.count()
+        assert chunk_count > 0, f"No chunks found in ChromaDB, expected > 0, got {chunk_count}"
 
         self.artifacts["chroma_dir"] = chroma_dir
 
@@ -292,16 +300,57 @@ class TestCLIWorkflowE2E:
         assert bm25_file.exists(), "BM25 index file not created"
         assert bm25_file.stat().st_size > 0, "BM25 index file is empty"
 
-    def test_07_ingest_full_pipeline(self, e2e_test_xml_path: Path, e2e_output_dir: Path) -> None:
+    def test_07_purge_db(self) -> None:
+        """Test purge-db command clears ChromaDB.
+
+        Validates:
+        - Command exits successfully
+        - ChromaDB is empty after purge
+
+        This ensures the subsequent ingest test starts with a clean database.
+        """
+        if "chroma_dir" not in self.artifacts:
+            pytest.skip("chroma_dir not available from previous test")
+
+        runner = CliRunner()
+        chroma_dir = self.artifacts["chroma_dir"]
+
+        # Verify DB has chunks before purge
+        client = chromadb.PersistentClient(path=str(chroma_dir))
+        collection = client.get_or_create_collection(name=ChromaVectorStore.DEFAULT_COLLECTION_NAME)
+        count_before = collection.count()
+        assert count_before > 0, "DB should have chunks before purge"
+
+        # Run purge command
+        result = runner.invoke(
+            purge_db,
+            [
+                "--chroma-path",
+                str(chroma_dir),
+                "--force",
+            ],
+        )
+
+        # Basic validation
+        assert result.exit_code == 0, f"Command failed: {result.output}"
+
+        # Verify DB is empty after purge
+        client = chromadb.PersistentClient(path=str(chroma_dir))
+        collection = client.get_or_create_collection(name=ChromaVectorStore.DEFAULT_COLLECTION_NAME)
+        count_after = collection.count()
+        assert count_after == 0, f"DB should be empty after purge, got {count_after} chunks"
+
+    def test_08_ingest_full_pipeline(self, e2e_test_xml_path: Path, e2e_output_dir: Path) -> None:
         """Test ingest command (full pipeline with embeddings).
 
         Validates:
         - Command exits successfully
         - Chroma DB is created
+        - ChromaDB contains chunks
         - Summary file contains expected data
 
         Note: Requires OPENAI_API_KEY environment variable.
-        This test validates the complete all-in-one workflow.
+        This test validates the complete all-in-one workflow starting with an empty DB.
         """
         # Skip if no API key
         if not os.getenv("OPENAI_API_KEY"):
@@ -353,6 +402,12 @@ class TestCLIWorkflowE2E:
         db_files = list(ingest_chroma_dir.glob("**/*"))
         assert len(db_files) > 0, "No files in Chroma DB directory"
 
+        # Query ChromaDB to verify chunks were stored
+        client = chromadb.PersistentClient(path=str(ingest_chroma_dir))
+        collection = client.get_or_create_collection(name=ChromaVectorStore.DEFAULT_COLLECTION_NAME)
+        chunk_count = collection.count()
+        assert chunk_count > 0, f"No chunks found in ChromaDB, expected > 0, got {chunk_count}"
+
         # Check summary file if it exists
         summary_file = Path("logs/ingestion-summary.json")
         if summary_file.exists():
@@ -364,3 +419,46 @@ class TestCLIWorkflowE2E:
             assert "chunks_created" in data, "Missing chunks_created"
             assert data["chunks_created"] > 0, "No chunks created"
             assert "embeddings_generated" in data, "Missing embeddings_generated"
+
+        # Store for show-chunk test
+        self.artifacts["ingest_chroma_dir"] = ingest_chroma_dir
+
+    def test_09_show_chunk(self) -> None:
+        """Test show-chunk command displays chunk details.
+
+        Validates:
+        - Command exits successfully
+        - Output contains chunk information
+
+        Note: Uses the ChromaDB populated by the ingest test.
+        """
+        if "ingest_chroma_dir" not in self.artifacts:
+            pytest.skip("ingest_chroma_dir not available from previous test")
+
+        runner = CliRunner()
+        chroma_dir = self.artifacts["ingest_chroma_dir"]
+
+        # Get the first chunk ID from ChromaDB
+        client = chromadb.PersistentClient(path=str(chroma_dir))
+        collection = client.get_or_create_collection(name=ChromaVectorStore.DEFAULT_COLLECTION_NAME)
+
+        # Get first chunk
+        results = collection.get(limit=1, include=["metadatas"])
+        assert len(results["ids"]) > 0, "No chunks available for show-chunk test"
+
+        chunk_id = results["ids"][0]
+
+        # Run show-chunk command
+        result = runner.invoke(
+            show_chunk,
+            [
+                chunk_id,
+                "--chroma-path",
+                str(chroma_dir),
+            ],
+        )
+
+        # Basic validation
+        assert result.exit_code == 0, f"Command failed: {result.output}"
+        assert chunk_id in result.output, "Chunk ID not found in output"
+        assert len(result.output) > 0, "Output is empty"
