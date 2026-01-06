@@ -16,8 +16,9 @@ from src.ingestion.markdown_loader import MarkdownLoader
 from src.ingestion.metadata_extractor import MetadataExtractor
 from src.ingestion.models import Chunk, WikiArticle, build_chunk_metadata
 from src.ingestion.text_chunker import MarkdownChunker
-from src.rag.vector_store import ChromaVectorStore, ChunkData, generate_chunk_id
+from src.rag.vector_store import ChromaVectorStore, ChunkData
 from src.repositories.bm25_repository import BM25Repository
+from src.utils.chunk_id import generate_chunk_id
 from src.utils.exceptions import IngestionError
 
 logger = structlog.get_logger(__name__)

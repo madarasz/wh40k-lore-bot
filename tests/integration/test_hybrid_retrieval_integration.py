@@ -299,15 +299,12 @@ class TestHybridRetrievalIntegration:
 
         # Should only return chunks matching filter
         assert len(results) > 0
-        for chunk, _ in results:
-            # Note: BM25 results won't be filtered, only vector results
-            # So we just verify at least one result matches the filter
-            if chunk["article_title"] == "Roboute Guilliman":
-                assert True
-                break
-        else:
-            # If no exact match, that's OK - BM25 may dominate
-            pass
+        # Note: BM25 results won't be filtered, only vector results
+        # Verify at least one result matches the filter (from vector search)
+        matching_results = [
+            chunk for chunk, _ in results if chunk["article_title"] == "Roboute Guilliman"
+        ]
+        assert len(matching_results) > 0, "Expected at least one result matching the filter"
 
     @pytest.mark.asyncio
     async def test_empty_results_handling(

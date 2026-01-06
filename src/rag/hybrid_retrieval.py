@@ -60,12 +60,20 @@ class HybridRetrievalService:
         self.bm25_repository = bm25_repository
 
         # Load configuration from environment with fallbacks
-        self.top_k = top_k or int(os.getenv("RETRIEVAL_TOP_K", str(self.DEFAULT_TOP_K)))
-        self.vector_weight = vector_weight or float(
-            os.getenv("RETRIEVAL_VECTOR_WEIGHT", str(self.DEFAULT_VECTOR_WEIGHT))
+        self.top_k = (
+            top_k
+            if top_k is not None
+            else int(os.getenv("RETRIEVAL_TOP_K", str(self.DEFAULT_TOP_K)))
         )
-        self.bm25_weight = bm25_weight or float(
-            os.getenv("RETRIEVAL_BM25_WEIGHT", str(self.DEFAULT_BM25_WEIGHT))
+        self.vector_weight = (
+            vector_weight
+            if vector_weight is not None
+            else float(os.getenv("RETRIEVAL_VECTOR_WEIGHT", str(self.DEFAULT_VECTOR_WEIGHT)))
+        )
+        self.bm25_weight = (
+            bm25_weight
+            if bm25_weight is not None
+            else float(os.getenv("RETRIEVAL_BM25_WEIGHT", str(self.DEFAULT_BM25_WEIGHT)))
         )
         self.rrf_k = self.DEFAULT_RRF_K
 

@@ -10,7 +10,7 @@ import structlog
 from rank_bm25 import BM25Okapi  # type: ignore[import-untyped]
 
 from src.ingestion.models import Chunk
-from src.rag.vector_store import generate_chunk_id
+from src.utils.chunk_id import generate_chunk_id
 
 logger = structlog.get_logger(__name__)
 

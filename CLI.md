@@ -323,3 +323,64 @@ poetry run purge-db --force
 ```
 
 **Warning:** This is a destructive operation that cannot be undone!
+
+---
+
+## Retrieval Testing Commands
+
+### retrieve
+
+Execute hybrid retrieval for a query, combining vector similarity and BM25 keyword search.
+
+Uses the HybridRetrievalService to demonstrate the full retrieval pipeline with Reciprocal
+Rank Fusion (RRF) to combine results from both search methods.
+
+```bash
+poetry run retrieve <query_text> [OPTIONS]
+```
+
+**Arguments:**
+- `query_text` - The query text to search for (required)
+
+**Options:**
+- `--top-k INTEGER` - Number of results to retrieve (default: 5)
+
+**Prerequisites:**
+- Chroma vector database must be populated (`poetry run ingest`)
+- BM25 index must be built (`poetry run build-bm25`)
+- OPENAI_API_KEY must be set for query embedding generation
+
+**Output includes:**
+- Total results count
+- Retrieval latency in milliseconds
+- For each result:
+  - RRF fusion score
+  - Article title
+  - Section path
+  - Chunk ID
+  - Text preview (first 200 characters)
+
+**Examples:**
+```bash
+# Basic query
+poetry run retrieve "Who is Roboute Guilliman?"
+
+# Return more results
+poetry run retrieve "Ultramarines homeworld" --top-k 10
+
+# Complex query
+poetry run retrieve "What happened during the Horus Heresy?"
+```
+
+**How it works:**
+1. Generates embedding for query text using OpenAI API
+2. Executes vector similarity search in ChromaDB
+3. Executes BM25 keyword search in parallel
+4. Fuses results using Reciprocal Rank Fusion (RRF)
+5. Returns top-k results sorted by fused score
+
+**Configuration:**
+Environment variables to tune retrieval behavior:
+- `RETRIEVAL_TOP_K` - Default number of results (default: 20)
+- `RETRIEVAL_VECTOR_WEIGHT` - Weight for vector search (default: 0.5)
+- `RETRIEVAL_BM25_WEIGHT` - Weight for BM25 search (default: 0.5)
