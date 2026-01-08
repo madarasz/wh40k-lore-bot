@@ -302,7 +302,7 @@ class ContextExpander:
                     document = results["documents"][i] if results["documents"] else ""
 
                     # Use vector_store's helper to convert metadata to ChunkData
-                    chunk = self.vector_store._metadata_to_chunk(
+                    chunk = self.vector_store.metadata_to_chunk(
                         chunk_id=chunk_id,
                         metadata=metadata,  # type: ignore[arg-type]
                         document=document,

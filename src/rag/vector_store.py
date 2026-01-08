@@ -259,7 +259,7 @@ class ChromaVectorStore:
                     distance = results["distances"][0][i] if results["distances"] else 0.0
 
                     # Reconstruct ChunkData from metadata
-                    chunk = self._metadata_to_chunk(
+                    chunk = self.metadata_to_chunk(
                         chunk_id=chunk_id,
                         metadata=cast(dict[str, Any], metadata),
                         document=document,
@@ -404,7 +404,7 @@ class ChromaVectorStore:
             metadata = results["metadatas"][0] if results["metadatas"] else {}
             document = results["documents"][0] if results["documents"] else ""
 
-            chunk = self._metadata_to_chunk(
+            chunk = self.metadata_to_chunk(
                 chunk_id=chunk_id,
                 metadata=cast(dict[str, Any], metadata),
                 document=document,
@@ -538,7 +538,7 @@ class ChromaVectorStore:
 
         return metadata
 
-    def _metadata_to_chunk(
+    def metadata_to_chunk(
         self,
         chunk_id: str,
         metadata: dict[str, Any],
