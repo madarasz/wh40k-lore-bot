@@ -5,7 +5,7 @@ from pathlib import Path
 import click
 import structlog
 
-from src.ingestion.test_bed_builder import TestBedBuilder
+from src.ingestion.test_bed_builder import WikiTestBedBuilder
 
 logger = structlog.get_logger(__name__)
 
@@ -53,7 +53,7 @@ def build_test_bed(
     click.echo()
 
     # Create builder
-    builder = TestBedBuilder()
+    builder = WikiTestBedBuilder()
 
     try:
         # Build test bed

@@ -1,11 +1,11 @@
-"""Integration tests for TestBedBuilder with sample XML data."""
+"""Integration tests for WikiTestBedBuilder with sample XML data."""
 
 from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 
-from src.ingestion.test_bed_builder import TestBedBuilder
+from src.ingestion.test_bed_builder import WikiTestBedBuilder
 
 # Sample MediaWiki XML export with linked pages
 SAMPLE_XML = """<?xml version="1.0" encoding="UTF-8"?>
@@ -181,16 +181,16 @@ def sample_xml_file(tmp_path: Path) -> Iterator[Path]:
 
 
 @pytest.fixture
-def builder() -> TestBedBuilder:
-    """Create a TestBedBuilder instance for testing."""
-    return TestBedBuilder()
+def builder() -> WikiTestBedBuilder:
+    """Create a WikiTestBedBuilder instance for testing."""
+    return WikiTestBedBuilder()
 
 
 class TestTestBedBuilderIntegration:
-    """Integration tests for TestBedBuilder with real XML data."""
+    """Integration tests for WikiTestBedBuilder with real XML data."""
 
     def test_build_test_bed_with_sample_xml(
-        self, builder: TestBedBuilder, sample_xml_file: Path
+        self, builder: WikiTestBedBuilder, sample_xml_file: Path
     ) -> None:
         """Test building test bed with sample XML data."""
         # Build test bed starting from Blood Angels (58)
@@ -207,7 +207,7 @@ class TestTestBedBuilderIntegration:
             assert isinstance(page_id, str)
 
     def test_build_test_bed_includes_related_pages(
-        self, builder: TestBedBuilder, sample_xml_file: Path
+        self, builder: WikiTestBedBuilder, sample_xml_file: Path
     ) -> None:
         """Test that test bed includes pages related to seed."""
         # Build larger test bed
@@ -223,7 +223,7 @@ class TestTestBedBuilderIntegration:
         assert included >= 3
 
     def test_build_test_bed_excludes_non_main_namespace(
-        self, builder: TestBedBuilder, sample_xml_file: Path
+        self, builder: WikiTestBedBuilder, sample_xml_file: Path
     ) -> None:
         """Test that non-main namespace pages are excluded."""
         # Build test bed with all pages
@@ -234,7 +234,7 @@ class TestTestBedBuilderIntegration:
         assert "1000" not in page_ids
 
     def test_build_test_bed_respects_target_count(
-        self, builder: TestBedBuilder, sample_xml_file: Path
+        self, builder: WikiTestBedBuilder, sample_xml_file: Path
     ) -> None:
         """Test that target count is respected."""
         # Small count
@@ -250,7 +250,7 @@ class TestTestBedBuilderIntegration:
         assert len(page_ids) <= 10  # Only 10 main namespace pages in sample
 
     def test_write_test_bed_file_integration(
-        self, builder: TestBedBuilder, sample_xml_file: Path, tmp_path: Path
+        self, builder: WikiTestBedBuilder, sample_xml_file: Path, tmp_path: Path
     ) -> None:
         """Test writing test bed file with real data."""
         # Build test bed
@@ -279,7 +279,7 @@ class TestTestBedBuilderIntegration:
             assert page_id in lines
 
     def test_full_workflow_with_output(
-        self, builder: TestBedBuilder, sample_xml_file: Path, tmp_path: Path
+        self, builder: WikiTestBedBuilder, sample_xml_file: Path, tmp_path: Path
     ) -> None:
         """Test complete workflow: build test bed and write output."""
         output_path = tmp_path / "data" / "test-bed-pages.txt"
@@ -309,7 +309,7 @@ class TestTestBedBuilderIntegration:
         assert "(seed)" in content
         assert content.count("(seed)") == 1
 
-    def test_bfs_traversal_order(self, builder: TestBedBuilder, sample_xml_file: Path) -> None:
+    def test_bfs_traversal_order(self, builder: WikiTestBedBuilder, sample_xml_file: Path) -> None:
         """Test that BFS traversal explores pages level by level."""
         # Build small test bed
         page_ids = builder.build_test_bed(sample_xml_file, "58", target_count=6)

@@ -1,16 +1,16 @@
-"""Unit tests for TestBedBuilder page selection."""
+"""Unit tests for WikiTestBedBuilder page selection."""
 
 from pathlib import Path
 
 import pytest
 
-from src.ingestion.test_bed_builder import TestBedBuilder
+from src.ingestion.test_bed_builder import WikiTestBedBuilder
 
 
 @pytest.fixture
-def builder() -> TestBedBuilder:
-    """Create a TestBedBuilder instance for testing."""
-    return TestBedBuilder()
+def builder() -> WikiTestBedBuilder:
+    """Create a WikiTestBedBuilder instance for testing."""
+    return WikiTestBedBuilder()
 
 
 @pytest.fixture
@@ -109,7 +109,7 @@ The [[Imperium]] is vast.
 class TestTitleToIdMapping:
     """Test title to ID mapping construction."""
 
-    def test_build_title_to_id_map(self, builder: TestBedBuilder, sample_xml: Path) -> None:
+    def test_build_title_to_id_map(self, builder: WikiTestBedBuilder, sample_xml: Path) -> None:
         """Test building title→ID mapping from XML."""
         title_to_id = builder._build_title_to_id_map(sample_xml)
 
@@ -124,7 +124,7 @@ class TestTitleToIdMapping:
         assert title_to_id["Horus_Heresy"] == "89"
 
     def test_build_title_to_id_map_skips_non_main_namespace(
-        self, builder: TestBedBuilder, sample_xml: Path
+        self, builder: WikiTestBedBuilder, sample_xml: Path
     ) -> None:
         """Test that non-main namespace pages are skipped."""
         title_to_id = builder._build_title_to_id_map(sample_xml)
@@ -133,7 +133,7 @@ class TestTitleToIdMapping:
         assert "Category:Space Marines" not in title_to_id
 
     def test_build_title_to_id_map_with_empty_xml(
-        self, builder: TestBedBuilder, tmp_path: Path
+        self, builder: WikiTestBedBuilder, tmp_path: Path
     ) -> None:
         """Test mapping construction with empty XML."""
         xml_content = """<?xml version="1.0" encoding="UTF-8"?>
@@ -150,7 +150,7 @@ class TestTitleToIdMapping:
 class TestLinkExtraction:
     """Test link extraction from pages."""
 
-    def test_extract_links_from_page(self, builder: TestBedBuilder, sample_xml: Path) -> None:
+    def test_extract_links_from_page(self, builder: WikiTestBedBuilder, sample_xml: Path) -> None:
         """Test extracting links from Blood Angels page."""
         links = builder._extract_links_from_page("58", sample_xml)
 
@@ -162,14 +162,14 @@ class TestLinkExtraction:
         assert "Horus_Heresy" in links
 
     def test_extract_links_from_nonexistent_page(
-        self, builder: TestBedBuilder, sample_xml: Path
+        self, builder: WikiTestBedBuilder, sample_xml: Path
     ) -> None:
         """Test extracting links from non-existent page returns empty list."""
         links = builder._extract_links_from_page("99999", sample_xml)
         assert links == []
 
     def test_extract_links_normalizes_titles(
-        self, builder: TestBedBuilder, sample_xml: Path
+        self, builder: WikiTestBedBuilder, sample_xml: Path
     ) -> None:
         """Test that link titles are normalized (spaces → underscores)."""
         links = builder._extract_links_from_page("58", sample_xml)
@@ -182,7 +182,7 @@ class TestLinkExtraction:
 class TestBFSTraversal:
     """Test breadth-first search traversal."""
 
-    def test_build_test_bed_basic(self, builder: TestBedBuilder, sample_xml: Path) -> None:
+    def test_build_test_bed_basic(self, builder: WikiTestBedBuilder, sample_xml: Path) -> None:
         """Test basic test bed construction."""
         page_ids = builder.build_test_bed(sample_xml, "58", target_count=5)
 
@@ -191,7 +191,7 @@ class TestBFSTraversal:
         assert page_ids[0] == "58"  # Seed page should be first
 
     def test_build_test_bed_starts_with_seed(
-        self, builder: TestBedBuilder, sample_xml: Path
+        self, builder: WikiTestBedBuilder, sample_xml: Path
     ) -> None:
         """Test that test bed starts with seed page."""
         page_ids = builder.build_test_bed(sample_xml, "58", target_count=3)
@@ -199,7 +199,7 @@ class TestBFSTraversal:
         assert page_ids[0] == "58"
 
     def test_build_test_bed_respects_target_count(
-        self, builder: TestBedBuilder, sample_xml: Path
+        self, builder: WikiTestBedBuilder, sample_xml: Path
     ) -> None:
         """Test that target count is respected."""
         page_ids = builder.build_test_bed(sample_xml, "58", target_count=3)
@@ -209,14 +209,14 @@ class TestBFSTraversal:
         assert len(page_ids) <= 10  # May be less if not enough pages
 
     def test_build_test_bed_with_invalid_seed(
-        self, builder: TestBedBuilder, sample_xml: Path
+        self, builder: WikiTestBedBuilder, sample_xml: Path
     ) -> None:
         """Test that invalid seed page raises ValueError."""
         with pytest.raises(ValueError, match="Seed page ID 99999 not found"):
             builder.build_test_bed(sample_xml, "99999", target_count=5)
 
     def test_build_test_bed_includes_linked_pages(
-        self, builder: TestBedBuilder, sample_xml: Path
+        self, builder: WikiTestBedBuilder, sample_xml: Path
     ) -> None:
         """Test that BFS includes pages linked from seed."""
         page_ids = builder.build_test_bed(sample_xml, "58", target_count=10)
@@ -229,7 +229,7 @@ class TestBFSTraversal:
         included_count = sum(1 for pid in linked_pages if pid in page_ids)
         assert included_count > 0
 
-    def test_build_test_bed_with_nonexistent_file(self, builder: TestBedBuilder) -> None:
+    def test_build_test_bed_with_nonexistent_file(self, builder: WikiTestBedBuilder) -> None:
         """Test that non-existent XML file raises FileNotFoundError."""
         with pytest.raises(FileNotFoundError):
             builder.build_test_bed("nonexistent.xml", "58", target_count=10)
@@ -238,7 +238,7 @@ class TestBFSTraversal:
 class TestStatistics:
     """Test statistics logging."""
 
-    def test_log_statistics(self, builder: TestBedBuilder) -> None:
+    def test_log_statistics(self, builder: WikiTestBedBuilder) -> None:
         """Test statistics logging doesn't raise errors."""
         selected = ["58", "100", "142"]
         depth_map = {"58": 0, "100": 1, "142": 1}
@@ -248,7 +248,7 @@ class TestStatistics:
         # Should not raise any errors
         builder._log_statistics(selected, depth_map, incoming_links, id_to_title)
 
-    def test_log_statistics_with_empty_data(self, builder: TestBedBuilder) -> None:
+    def test_log_statistics_with_empty_data(self, builder: WikiTestBedBuilder) -> None:
         """Test statistics logging with empty data."""
         selected: list[str] = []
         depth_map: dict[str, int] = {}
@@ -263,7 +263,7 @@ class TestOutputFile:
     """Test output file generation."""
 
     def test_write_test_bed_file(
-        self, builder: TestBedBuilder, sample_xml: Path, tmp_path: Path
+        self, builder: WikiTestBedBuilder, sample_xml: Path, tmp_path: Path
     ) -> None:
         """Test writing test bed file with comments."""
         page_ids = ["58", "100", "142"]
@@ -287,7 +287,7 @@ class TestOutputFile:
         assert "142" in lines
 
     def test_write_test_bed_file_creates_parent_directory(
-        self, builder: TestBedBuilder, sample_xml: Path, tmp_path: Path
+        self, builder: WikiTestBedBuilder, sample_xml: Path, tmp_path: Path
     ) -> None:
         """Test that parent directory is created if it doesn't exist."""
         page_ids = ["58", "100"]
@@ -299,7 +299,7 @@ class TestOutputFile:
         assert output_path.parent.exists()
 
     def test_write_test_bed_file_marks_seed_page(
-        self, builder: TestBedBuilder, sample_xml: Path, tmp_path: Path
+        self, builder: WikiTestBedBuilder, sample_xml: Path, tmp_path: Path
     ) -> None:
         """Test that seed page is marked with (seed) comment."""
         page_ids = ["58", "100"]

@@ -34,7 +34,8 @@ load_dotenv()
 
 
 @pytest.mark.e2e
-class TestCLIWorkflowE2E:
+@pytest.mark.dependency()
+class TestCLIIngestWorkflowE2E:
     """End-to-end tests for CLI command pipeline.
 
     Tests run sequentially and share artifacts via class attributes.
@@ -44,6 +45,7 @@ class TestCLIWorkflowE2E:
     # Shared artifacts between tests
     artifacts: dict[str, Path] = {}
 
+    @pytest.mark.dependency(name="test_01_build_test_bed")
     def test_01_build_test_bed(self, e2e_test_xml_path: Path, e2e_output_dir: Path) -> None:
         """Test build-test-bed command creates page ID file.
 
@@ -86,6 +88,7 @@ class TestCLIWorkflowE2E:
         # Store for next tests
         self.artifacts["test_bed_file"] = test_bed_file
 
+    @pytest.mark.dependency(name="test_02_parse_wiki", depends=["test_01_build_test_bed"])
     def test_02_parse_wiki(self, e2e_test_xml_path: Path, e2e_output_dir: Path) -> None:
         """Test parse-wiki command creates markdown files.
 
@@ -121,6 +124,7 @@ class TestCLIWorkflowE2E:
 
         self.artifacts["markdown_dir"] = markdown_dir
 
+    @pytest.mark.dependency(name="test_03_chunk", depends=["test_02_parse_wiki"])
     def test_03_chunk(self, e2e_output_dir: Path) -> None:
         """Test chunk command creates chunks JSON.
 
@@ -170,6 +174,7 @@ class TestCLIWorkflowE2E:
 
         self.artifacts["chunks_file"] = chunks_file
 
+    @pytest.mark.dependency(name="test_04_embed", depends=["test_03_chunk"])
     def test_04_embed(self, e2e_output_dir: Path) -> None:
         """Test embed command generates embeddings JSON.
 
@@ -221,6 +226,7 @@ class TestCLIWorkflowE2E:
 
         self.artifacts["embeddings_file"] = embeddings_file
 
+    @pytest.mark.dependency(name="test_05_store", depends=["test_04_embed"])
     def test_05_store(self, e2e_output_dir: Path) -> None:
         """Test store command populates Chroma DB and BM25 index.
 
@@ -267,6 +273,7 @@ class TestCLIWorkflowE2E:
 
         self.artifacts["chroma_dir"] = chroma_dir
 
+    @pytest.mark.dependency(name="test_06_build_bm25", depends=["test_03_chunk"])
     def test_06_build_bm25(self, e2e_output_dir: Path) -> None:
         """Test build-bm25 command creates BM25 index independently.
 
@@ -300,6 +307,7 @@ class TestCLIWorkflowE2E:
         assert bm25_file.exists(), "BM25 index file not created"
         assert bm25_file.stat().st_size > 0, "BM25 index file is empty"
 
+    @pytest.mark.dependency(name="test_07_purge_db", depends=["test_05_store"])
     def test_07_purge_db(self) -> None:
         """Test purge-db command clears ChromaDB.
 
@@ -340,6 +348,9 @@ class TestCLIWorkflowE2E:
         count_after = collection.count()
         assert count_after == 0, f"DB should be empty after purge, got {count_after} chunks"
 
+    @pytest.mark.dependency(
+        name="ingest_pipeline_complete", depends=["test_01_build_test_bed"], scope="session"
+    )
     def test_08_ingest_full_pipeline(self, e2e_test_xml_path: Path, e2e_output_dir: Path) -> None:
         """Test ingest command (full pipeline with embeddings).
 
@@ -381,6 +392,11 @@ class TestCLIWorkflowE2E:
 
         assert result.exit_code == 0, f"Parse wiki failed: {result.output}"
 
+        # Set BM25 index path to be inside the chroma directory
+        # This ensures retrieve tests can find it in the expected location
+        bm25_index_path = ingest_chroma_dir / "bm25_index.pkl"
+        os.environ["BM25_INDEX_PATH"] = str(bm25_index_path)
+
         # Run full ingest pipeline
         result = runner.invoke(
             ingest,
@@ -408,6 +424,10 @@ class TestCLIWorkflowE2E:
         chunk_count = collection.count()
         assert chunk_count > 0, f"No chunks found in ChromaDB, expected > 0, got {chunk_count}"
 
+        # Verify BM25 index was created
+        assert bm25_index_path.exists(), f"BM25 index not created at {bm25_index_path}"
+        assert bm25_index_path.stat().st_size > 0, "BM25 index file is empty"
+
         # Check summary file if it exists
         summary_file = Path("logs/ingestion-summary.json")
         if summary_file.exists():
@@ -423,6 +443,7 @@ class TestCLIWorkflowE2E:
         # Store for show-chunk test
         self.artifacts["ingest_chroma_dir"] = ingest_chroma_dir
 
+    @pytest.mark.dependency(name="test_09_show_chunk", depends=["ingest_pipeline_complete"])
     def test_09_show_chunk(self) -> None:
         """Test show-chunk command displays chunk details.
 
