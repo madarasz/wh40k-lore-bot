@@ -14,7 +14,7 @@ def mock_vector_store():
     """Create a mock ChromaVectorStore."""
     store = MagicMock()
     store.collection = MagicMock()
-    store._metadata_to_chunk = MagicMock()
+    store.metadata_to_chunk = MagicMock()
     return store
 
 
@@ -262,7 +262,7 @@ class TestExpandContextDepth1:
             return None
 
         mock_vector_store.collection.get = MagicMock(side_effect=mock_get)
-        mock_vector_store._metadata_to_chunk = mock_metadata_to_chunk
+        mock_vector_store.metadata_to_chunk = mock_metadata_to_chunk
 
         expander = ContextExpander(vector_store=mock_vector_store, expansion_depth=1)
 
@@ -324,7 +324,7 @@ class TestExpandContextDepth1:
             return None
 
         mock_vector_store.collection.get = MagicMock(side_effect=mock_get)
-        mock_vector_store._metadata_to_chunk = mock_metadata_to_chunk
+        mock_vector_store.metadata_to_chunk = mock_metadata_to_chunk
 
         expander = ContextExpander(vector_store=mock_vector_store)
 
@@ -409,7 +409,7 @@ class TestExpandContextDepth2:
             return None
 
         mock_vector_store.collection.get = MagicMock(side_effect=mock_get)
-        mock_vector_store._metadata_to_chunk = mock_metadata_to_chunk
+        mock_vector_store.metadata_to_chunk = mock_metadata_to_chunk
 
         expander = ContextExpander(vector_store=mock_vector_store, expansion_depth=2)
 
@@ -462,7 +462,7 @@ class TestExpandContextMaxChunksLimit:
             return None
 
         mock_vector_store.collection.get = MagicMock(side_effect=mock_get)
-        mock_vector_store._metadata_to_chunk = mock_metadata_to_chunk
+        mock_vector_store.metadata_to_chunk = mock_metadata_to_chunk
 
         # Set very low max_chunks limit
         expander = ContextExpander(vector_store=mock_vector_store, expansion_depth=2, max_chunks=5)

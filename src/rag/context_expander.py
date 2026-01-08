@@ -284,40 +284,30 @@ class ContextExpander:
 
         Returns:
             List of ChunkData for the article
+        Raises:
+            VectorStoreError: If fetching chunks fails
         """
-        try:
-            # Query vector store with article_title filter
-            results = await asyncio.to_thread(
-                self.vector_store.collection.get,
-                where={"article_title": article_title},
-                limit=limit,
-                include=["metadatas", "documents"],
-            )
+        # Query vector store with article_title filter
+        results = await asyncio.to_thread(
+            self.vector_store.collection.get,
+            where={"article_title": article_title},
+            limit=limit,
+            include=["metadatas", "documents"],
+        )
 
-            chunks: list[ChunkData] = []
+        chunks: list[ChunkData] = []
 
-            if results["ids"]:
-                for i, chunk_id in enumerate(results["ids"]):
-                    metadata = results["metadatas"][i] if results["metadatas"] else {}
-                    document = results["documents"][i] if results["documents"] else ""
+        if results["ids"]:
+            for i, chunk_id in enumerate(results["ids"]):
+                metadata = results["metadatas"][i] if results["metadatas"] else {}
+                document = results["documents"][i] if results["documents"] else ""
 
-                    # Use vector_store's helper to convert metadata to ChunkData
-                    chunk = self.vector_store.metadata_to_chunk(
-                        chunk_id=chunk_id,
-                        metadata=metadata,  # type: ignore[arg-type]
-                        document=document,
-                    )
-                    chunks.append(chunk)
+                # Use vector_store's helper to convert metadata to ChunkData
+                chunk = self.vector_store.metadata_to_chunk(
+                    chunk_id=chunk_id,
+                    metadata=metadata,  # type: ignore[arg-type]
+                    document=document,
+                )
+                chunks.append(chunk)
 
-            return chunks
-
-        except Exception as e:
-            logger.error(
-                "fetch_chunks_by_article_failed",
-                article_title=article_title,
-                error=str(e),
-                error_type=type(e).__name__,
-                exc_info=True,
-            )
-            # Return empty list on error rather than failing the entire expansion
-            return []
+        return chunks
