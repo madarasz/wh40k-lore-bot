@@ -10,6 +10,7 @@ import structlog
 
 from src.rag.vector_store import ChromaVectorStore, ChunkData
 from src.repositories.bm25_repository import BM25Repository
+from src.utils.exceptions import ValidationError
 
 logger = structlog.get_logger(__name__)
 
@@ -79,11 +80,11 @@ class HybridRetrievalService:
 
         # Validate weights
         if self.vector_weight < 0 or self.bm25_weight < 0:
-            raise ValueError("Weights cannot be negative")
+            raise ValidationError("Weights cannot be negative")
 
         weight_sum = self.vector_weight + self.bm25_weight
         if not (self.WEIGHT_SUM_TOLERANCE_MIN <= weight_sum <= self.WEIGHT_SUM_TOLERANCE_MAX):
-            raise ValueError(f"Weights must sum to 1.0 (got {weight_sum})")
+            raise ValidationError(f"Weights must sum to 1.0 (got {weight_sum})")
 
         logger.info(
             "hybrid_retrieval_service_initialized",
@@ -118,10 +119,10 @@ class HybridRetrievalService:
             ValueError: If query_text is empty or query_embedding is invalid
         """
         if not query_text or not query_text.strip():
-            raise ValueError("Query text cannot be empty")
+            raise ValidationError("Query text cannot be empty")
 
         if query_embedding.size == 0:
-            raise ValueError("Query embedding cannot be empty")
+            raise ValidationError("Query embedding cannot be empty")
 
         k = top_k or self.top_k
 
@@ -134,7 +135,7 @@ class HybridRetrievalService:
         )
 
         # Fuse results using RRF
-        fused_results = self._fuse_results(vector_results, bm25_results, k)
+        fused_results = await self._fuse_results(vector_results, bm25_results, k)
 
         # Calculate total retrieval time
         total_time_ms = (time.time() - start_time) * 1000
@@ -245,7 +246,7 @@ class HybridRetrievalService:
             )
             raise
 
-    def _fuse_results(
+    async def _fuse_results(
         self,
         vector_results: list[tuple[ChunkData, float]],
         bm25_results: list[tuple[str, float]],
@@ -282,7 +283,7 @@ class HybridRetrievalService:
 
             # If chunk not in vector results, need to fetch from vector store
             if chunk_id not in chunk_map:
-                chunk_data = self.vector_store.get_by_id(chunk_id)
+                chunk_data = await asyncio.to_thread(self.vector_store.get_by_id, chunk_id)
                 if chunk_data:
                     chunk_map[chunk_id] = chunk_data
 

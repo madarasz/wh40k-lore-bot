@@ -13,7 +13,7 @@ from src.ingestion.embedding_generator import EmbeddingGenerator
 from src.rag.hybrid_retrieval import HybridRetrievalService
 from src.rag.vector_store import ChromaVectorStore, ChunkData
 from src.repositories.bm25_repository import BM25Repository
-from src.utils.exceptions import ConfigurationError
+from src.utils.exceptions import ConfigurationError, EmbeddingGenerationError
 
 load_dotenv()
 logger = structlog.get_logger(__name__)
@@ -106,7 +106,7 @@ async def _execute_retrieval(query_text: str, top_k: int) -> None:
         embeddings = embedding_gen.generate_embeddings([query_text])
 
         if not embeddings or embeddings[0] is None:
-            raise RuntimeError("Failed to generate embedding for query text")
+            raise EmbeddingGenerationError("Failed to generate embedding for query text")
 
         query_embedding = embeddings[0]
         logger.info("query_embedding_generated", dimensions=len(query_embedding))
