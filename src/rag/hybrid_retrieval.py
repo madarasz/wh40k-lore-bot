@@ -37,6 +37,28 @@ class HybridRetrievalService:
     WEIGHT_SUM_TOLERANCE_MIN = 0.99
     WEIGHT_SUM_TOLERANCE_MAX = 1.01
 
+    @staticmethod
+    def _parse_env_int(key: str, default: int) -> int:
+        """Parse integer from environment with validation."""
+        value = os.getenv(key)
+        if value is None:
+            return default
+        try:
+            return int(value)
+        except ValueError:
+            raise ValidationError(f"Invalid integer value for {key}: {value}") from None
+
+    @staticmethod
+    def _parse_env_float(key: str, default: float) -> float:
+        """Parse float from environment with validation."""
+        value = os.getenv(key)
+        if value is None:
+            return default
+        try:
+            return float(value)
+        except ValueError:
+            raise ValidationError(f"Invalid float value for {key}: {value}") from None
+
     def __init__(
         self,
         vector_store: ChromaVectorStore,
@@ -55,7 +77,7 @@ class HybridRetrievalService:
             bm25_weight: Weight for BM25 scores (defaults to env RETRIEVAL_BM25_WEIGHT or 0.5)
 
         Raises:
-            ValueError: If weights don't sum to 1.0 or are negative
+            ValidationError: If weights don't sum to 1.0 or are negative
         """
         self.vector_store = vector_store
         self.bm25_repository = bm25_repository
@@ -64,17 +86,17 @@ class HybridRetrievalService:
         self.top_k = (
             top_k
             if top_k is not None
-            else int(os.getenv("RETRIEVAL_TOP_K", str(self.DEFAULT_TOP_K)))
+            else self._parse_env_int("RETRIEVAL_TOP_K", self.DEFAULT_TOP_K)
         )
         self.vector_weight = (
             vector_weight
             if vector_weight is not None
-            else float(os.getenv("RETRIEVAL_VECTOR_WEIGHT", str(self.DEFAULT_VECTOR_WEIGHT)))
+            else self._parse_env_float("RETRIEVAL_VECTOR_WEIGHT", self.DEFAULT_VECTOR_WEIGHT)
         )
         self.bm25_weight = (
             bm25_weight
             if bm25_weight is not None
-            else float(os.getenv("RETRIEVAL_BM25_WEIGHT", str(self.DEFAULT_BM25_WEIGHT)))
+            else self._parse_env_float("RETRIEVAL_BM25_WEIGHT", self.DEFAULT_BM25_WEIGHT)
         )
         self.rrf_k = self.DEFAULT_RRF_K
 
@@ -116,7 +138,7 @@ class HybridRetrievalService:
             List of tuples (ChunkData, fused_score) sorted by score descending
 
         Raises:
-            ValueError: If query_text is empty or query_embedding is invalid
+            ValidationError: If query_text is empty or query_embedding is invalid
         """
         if not query_text or not query_text.strip():
             raise ValidationError("Query text cannot be empty")
