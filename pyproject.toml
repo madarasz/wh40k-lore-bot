@@ -60,6 +60,9 @@ delete-chunk = "src.cli.delete_chunk:delete_chunk"
 db-health = "src.cli.db_health:db_health"
 purge-db = "src.cli.purge_db:purge_db"
 
+# Retrieval testing
+retrieve = "src.cli.retrieve:retrieve"
+
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
