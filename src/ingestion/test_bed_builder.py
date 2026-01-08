@@ -11,7 +11,7 @@ from src.ingestion.wiki_xml_parser import NS, WikiXMLParser
 logger = structlog.get_logger(__name__)
 
 
-class TestBedBuilder:
+class WikiTestBedBuilder:
     """Builds a curated test set of wiki pages using breadth-first traversal.
 
     Uses BFS starting from a seed page to select ~100 related pages for
@@ -19,7 +19,7 @@ class TestBedBuilder:
     """
 
     def __init__(self) -> None:
-        """Initialize the TestBedBuilder."""
+        """Initialize the WikiTestBedBuilder."""
         self.logger = logger.bind(component="test_bed_builder")
         self.parser = WikiXMLParser()
 

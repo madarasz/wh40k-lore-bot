@@ -10,6 +10,7 @@ import structlog
 from dotenv import load_dotenv
 
 from src.ingestion.embedding_generator import EmbeddingGenerator
+from src.rag.context_expander import ContextExpander
 from src.rag.hybrid_retrieval import HybridRetrievalService
 from src.rag.vector_store import ChromaVectorStore, ChunkData
 from src.repositories.bm25_repository import BM25Repository
@@ -23,7 +24,11 @@ PREVIEW_LENGTH = 200
 
 
 def _display_results(
-    query_text: str, results: list[tuple[ChunkData, float]], latency_ms: float
+    query_text: str,
+    results: list[tuple[ChunkData, float]],
+    latency_ms: float,
+    initial_count: int | None = None,
+    expansion_enabled: bool = False,
 ) -> None:
     """Display retrieval results in user-friendly format.
 
@@ -31,12 +36,21 @@ def _display_results(
         query_text: The original query text
         results: List of (ChunkData, score) tuples from hybrid retrieval
         latency_ms: Retrieval latency in milliseconds
+        initial_count: Initial chunk count before expansion (if expansion applied)
+        expansion_enabled: Whether context expansion was enabled
     """
     click.echo("=" * 80)
     click.echo("HYBRID RETRIEVAL RESULTS")
     click.echo("=" * 80)
     click.echo(f"Query: {query_text}")
     click.echo(f"Results: {len(results)} chunks")
+
+    # Show expansion statistics if expansion was applied
+    if expansion_enabled and initial_count is not None and initial_count < len(results):
+        added_count = len(results) - initial_count
+        click.echo(f"  ├─ Initial retrieval: {initial_count} chunks")
+        click.echo(f"  └─ Context expansion: +{added_count} chunks")
+
     click.echo(f"Latency: {latency_ms:.2f}ms")
     click.echo("=" * 80)
     click.echo()
@@ -127,11 +141,43 @@ async def _execute_retrieval(query_text: str, top_k: int) -> None:
             query_text=query_text,
         )
 
+        initial_count = len(results)
+
+        # Apply context expansion if enabled
+        context_expander = ContextExpander(vector_store=vector_store)
+
+        if context_expander.enabled:
+            click.echo("Applying context expansion...")
+            # Extract chunks from (chunk, score) tuples
+            chunks = [chunk for chunk, _score in results]
+
+            # Apply expansion
+            expanded_chunks = await context_expander.expand_context(chunks)
+
+            # Reconstruct results with expanded chunks
+            # Keep original scores for initial chunks, assign 0.0 for expanded chunks
+            results = [(chunk, score) for chunk, score in results]  # Original results
+            for expanded_chunk in expanded_chunks[initial_count:]:
+                results.append((expanded_chunk, 0.0))
+
+            logger.info(
+                "context_expansion_applied",
+                initial_count=initial_count,
+                expanded_count=len(results),
+                chunks_added=len(results) - initial_count,
+            )
+
         # Calculate latency
         latency_ms = (time.time() - start_time) * 1000
 
         # Display results
-        _display_results(query_text, results, latency_ms)
+        _display_results(
+            query_text,
+            results,
+            latency_ms,
+            initial_count=initial_count,
+            expansion_enabled=context_expander.enabled,
+        )
 
         logger.info(
             "retrieval_completed",
@@ -154,8 +200,8 @@ async def _execute_retrieval(query_text: str, top_k: int) -> None:
     "--top-k",
     "-k",
     type=int,
-    default=5,
-    help="Number of results to retrieve (default: 5)",
+    default=lambda: int(os.getenv("RETRIEVAL_TOP_K", "20")),
+    help="Number of results to retrieve (default: from RETRIEVAL_TOP_K env var)",
 )
 def retrieve(query_text: str, top_k: int) -> None:
     """Execute hybrid retrieval for a query.

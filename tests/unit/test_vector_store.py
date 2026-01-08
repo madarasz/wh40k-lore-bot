@@ -554,7 +554,7 @@ class TestMetadataConversion:
             "links": json.dumps(["Space Marines", "Sanguinius"]),
         }
 
-        chunk = vector_store._metadata_to_chunk(
+        chunk = vector_store.metadata_to_chunk(
             chunk_id="chunk-1",
             metadata=metadata,
             document="Test content",
@@ -579,7 +579,7 @@ class TestMetadataConversion:
             "article_last_updated": "2024-01-15T10:30:00Z",
         }
 
-        chunk = vector_store._metadata_to_chunk(
+        chunk = vector_store.metadata_to_chunk(
             chunk_id="chunk-1",
             metadata=metadata,
             document="Test content",
