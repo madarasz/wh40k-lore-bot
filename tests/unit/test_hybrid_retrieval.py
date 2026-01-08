@@ -7,6 +7,7 @@ import pytest
 
 from src.rag.hybrid_retrieval import HybridRetrievalService
 from src.rag.vector_store import ChunkData
+from src.utils.exceptions import ValidationError
 
 
 @pytest.fixture
@@ -133,8 +134,8 @@ class TestInitialization:
         mock_vector_store: MagicMock,
         mock_bm25_repository: MagicMock,
     ) -> None:
-        """Test that negative weights raise ValueError."""
-        with pytest.raises(ValueError, match="Weights cannot be negative"):
+        """Test that negative weights raise ValidationError."""
+        with pytest.raises(ValidationError, match="Weights cannot be negative"):
             HybridRetrievalService(
                 vector_store=mock_vector_store,
                 bm25_repository=mock_bm25_repository,
@@ -147,8 +148,8 @@ class TestInitialization:
         mock_vector_store: MagicMock,
         mock_bm25_repository: MagicMock,
     ) -> None:
-        """Test that weights not summing to 1.0 raise ValueError."""
-        with pytest.raises(ValueError, match="Weights must sum to 1.0"):
+        """Test that weights not summing to 1.0 raise ValidationError."""
+        with pytest.raises(ValidationError, match="Weights must sum to 1.0"):
             HybridRetrievalService(
                 vector_store=mock_vector_store,
                 bm25_repository=mock_bm25_repository,
@@ -205,8 +206,8 @@ class TestRetrieve:
         hybrid_service: HybridRetrievalService,
         query_embedding: np.ndarray,
     ) -> None:
-        """Test that empty query text raises ValueError."""
-        with pytest.raises(ValueError, match="Query text cannot be empty"):
+        """Test that empty query text raises ValidationError."""
+        with pytest.raises(ValidationError, match="Query text cannot be empty"):
             await hybrid_service.retrieve(
                 query_embedding=query_embedding,
                 query_text="",
@@ -217,10 +218,10 @@ class TestRetrieve:
         self,
         hybrid_service: HybridRetrievalService,
     ) -> None:
-        """Test that empty embedding raises ValueError."""
+        """Test that empty embedding raises ValidationError."""
         empty_embedding = np.array([])
 
-        with pytest.raises(ValueError, match="Query embedding cannot be empty"):
+        with pytest.raises(ValidationError, match="Query embedding cannot be empty"):
             await hybrid_service.retrieve(
                 query_embedding=empty_embedding,
                 query_text="test query",
@@ -363,7 +364,8 @@ class TestRetrieve:
 class TestRRFFusion:
     """Test Reciprocal Rank Fusion algorithm."""
 
-    def test_fuse_results_both_present(
+    @pytest.mark.asyncio
+    async def test_fuse_results_both_present(
         self,
         hybrid_service: HybridRetrievalService,
         sample_chunk_data: list[ChunkData],
@@ -381,13 +383,14 @@ class TestRRFFusion:
         # Mock get_by_id for BM25-only chunks
         hybrid_service.vector_store.get_by_id.return_value = sample_chunk_data[2]
 
-        results = hybrid_service._fuse_results(vector_results, bm25_results, top_k=10)
+        results = await hybrid_service._fuse_results(vector_results, bm25_results, top_k=10)
 
         assert len(results) == 3
         # Chunk 12345_0 appears in both, should have highest combined score
         assert results[0][0]["id"] == "12345_0"
 
-    def test_fuse_results_correct_rrf_scores(
+    @pytest.mark.asyncio
+    async def test_fuse_results_correct_rrf_scores(
         self,
         hybrid_service: HybridRetrievalService,
         sample_chunk_data: list[ChunkData],
@@ -397,14 +400,15 @@ class TestRRFFusion:
         vector_results = [(sample_chunk_data[0], 0.1)]
         bm25_results = [("12345_0", 5.0)]
 
-        results = hybrid_service._fuse_results(vector_results, bm25_results, top_k=10)
+        results = await hybrid_service._fuse_results(vector_results, bm25_results, top_k=10)
 
         # Expected RRF score: 0.5/(60+1) + 0.5/(60+1) = 1.0/61 ≈ 0.01639
         expected_score = (0.5 + 0.5) / 61
         assert len(results) == 1
         assert abs(results[0][1] - expected_score) < 0.0001
 
-    def test_fuse_results_weighted_rrf(
+    @pytest.mark.asyncio
+    async def test_fuse_results_weighted_rrf(
         self,
         mock_vector_store: MagicMock,
         mock_bm25_repository: MagicMock,
@@ -421,14 +425,15 @@ class TestRRFFusion:
         vector_results = [(sample_chunk_data[0], 0.1)]
         bm25_results = [("12345_0", 5.0)]
 
-        results = service._fuse_results(vector_results, bm25_results, top_k=10)
+        results = await service._fuse_results(vector_results, bm25_results, top_k=10)
 
         # Expected RRF score: 0.7/(60+1) + 0.3/(60+1) = 1.0/61 ≈ 0.01639
         expected_score = (0.7 + 0.3) / 61
         assert len(results) == 1
         assert abs(results[0][1] - expected_score) < 0.0001
 
-    def test_fuse_results_respects_top_k(
+    @pytest.mark.asyncio
+    async def test_fuse_results_respects_top_k(
         self,
         hybrid_service: HybridRetrievalService,
         sample_chunk_data: list[ChunkData],
@@ -446,11 +451,12 @@ class TestRRFFusion:
 
         hybrid_service.vector_store.get_by_id.return_value = sample_chunk_data[2]
 
-        results = hybrid_service._fuse_results(vector_results, bm25_results, top_k=2)
+        results = await hybrid_service._fuse_results(vector_results, bm25_results, top_k=2)
 
         assert len(results) == 2
 
-    def test_fuse_results_missing_chunks_filtered(
+    @pytest.mark.asyncio
+    async def test_fuse_results_missing_chunks_filtered(
         self,
         hybrid_service: HybridRetrievalService,
         sample_chunk_data: list[ChunkData],
@@ -465,7 +471,7 @@ class TestRRFFusion:
         # Mock get_by_id to return None for missing chunk
         hybrid_service.vector_store.get_by_id.return_value = None
 
-        results = hybrid_service._fuse_results(vector_results, bm25_results, top_k=10)
+        results = await hybrid_service._fuse_results(vector_results, bm25_results, top_k=10)
 
         # Only the chunk from vector results should be present
         assert len(results) == 1
