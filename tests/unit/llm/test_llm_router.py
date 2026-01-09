@@ -19,6 +19,7 @@ class TestMultiLLMRouter:
         with patch.dict(
             "os.environ",
             {"OPENAI_API_KEY": "test-key", "ANTHROPIC_API_KEY": "test-key"},
+            clear=True,
         ):
             return MultiLLMRouter()
 
@@ -60,6 +61,7 @@ class TestMultiLLMRouter:
                 "ANTHROPIC_API_KEY": "test-key",
                 "LLM_DEFAULT_MODEL": "gpt-4.1",
             },
+            clear=True,
         ):
             router = MultiLLMRouter()
             assert router.default_model == "gpt-4.1"

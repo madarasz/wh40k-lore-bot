@@ -9,7 +9,7 @@ from pydantic import ValidationError as PydanticValidationError
 from src.llm.base_provider import GenerationOptions
 from src.llm.providers.openai_provider import OpenAIProvider
 from src.llm.structured_output import LLMStructuredResponse
-from src.utils.exceptions import ConfigurationError
+from src.utils.exceptions import ConfigurationError, LLMProviderError
 
 
 class TestOpenAIProvider:
@@ -117,8 +117,6 @@ class TestOpenAIProvider:
         generation_options: GenerationOptions,
     ) -> None:
         """Test generic errors are wrapped in LLMProviderError."""
-        from src.utils.exceptions import LLMProviderError
-
         with patch.object(
             provider.client.chat.completions,
             "create",
@@ -236,8 +234,6 @@ class TestOpenAIProvider:
         generation_options: GenerationOptions,
     ) -> None:
         """Test retry logic exhausts after 3 attempts and wraps error."""
-        from src.utils.exceptions import LLMProviderError
-
         # Create proper exception instance
         mock_request = MagicMock()
         error = APIConnectionError(request=mock_request)
