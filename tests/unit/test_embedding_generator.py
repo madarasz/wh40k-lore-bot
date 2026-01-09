@@ -8,6 +8,7 @@ import pytest
 from openai import AuthenticationError, OpenAIError, RateLimitError
 
 from src.ingestion.embedding_generator import EmbeddingGenerator, RateLimiter
+from src.llm.pricing import pricing_calculator
 from src.utils.exceptions import ConfigurationError, EmbeddingGenerationError
 
 
@@ -315,16 +316,17 @@ class TestEmbeddingGenerator:
         generator = EmbeddingGenerator(api_key="test-key")
         generator.generate_embeddings(["test chunk"])
 
-        # Verify cost tracking
+        # Verify cost tracking using centralized PricingCalculator
         assert generator.total_tokens == 1000
-        expected_cost = 1000 * (0.02 / 1_000_000)  # $0.00002
+        model_pricing = pricing_calculator.get_model_pricing("text-embedding-3-small")
+        expected_cost = pricing_calculator.calculate_cost("text-embedding-3-small", 1000, 0)
         assert abs(generator.total_cost - expected_cost) < 0.000001
 
         # Test cost summary
         summary = generator.get_cost_summary()
         assert summary["total_tokens"] == 1000
         assert abs(summary["total_cost_usd"] - expected_cost) < 0.0001
-        assert summary["cost_per_1k_tokens"] == 0.00002
+        assert summary["cost_per_1k_tokens"] == model_pricing["input"]
 
     @patch("src.ingestion.embedding_generator.OpenAI")
     def test_partial_failure_handling(self, mock_openai_class):

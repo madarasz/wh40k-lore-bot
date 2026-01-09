@@ -546,9 +546,11 @@ Based on the Central Orchestrator architecture and defined data models, here are
 - `MistralProvider` (Phase 2)
 
 **Key Interfaces (Base Class):**
-- `async def generate(prompt: str, options: dict) -> str`
-- `async def estimate_cost(prompt_tokens: int, completion_tokens: int) -> float`
+- `async def generate(prompt: str, options: GenerationOptions) -> LLMResponse`
+- `async def generate_structured(prompt: str, options: GenerationOptions, response_schema: type[BaseModel]) -> LLMStructuredResponse`
 - `get_provider_name() -> str`
+
+**Note:** Cost calculation is handled by the centralized `PricingCalculator` class in `src/llm/pricing.py`.
 
 **Dependencies:** Respective API SDKs
 

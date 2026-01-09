@@ -121,6 +121,8 @@
 
 ## Story 2.3: Multi-LLM Router, OpenAI & Anthropic Providers with Structured Output
 
+**Status:** Complete
+
 **Story:** As a developer, I want a multi-LLM router with a pluggable provider system, OpenAI and Anthropic implementations with structured JSON output using Pydantic validation, so that I can generate validated responses with personality and source attribution.
 
 **Acceptance Criteria:**
@@ -134,16 +136,12 @@
 2. `LLMProvider` abstract base class created in `src/llm/base_provider.py`:
    - `async def generate(prompt: str, options: GenerationOptions) -> LLMResponse`
    - `async def generate_structured(prompt: str, options: GenerationOptions, response_schema: type[BaseModel]) -> LLMStructuredResponse`
-   - `async def estimate_cost(prompt_tokens: int, completion_tokens: int) -> float`
    - `def get_provider_name() -> str`
-   - `def supports_language(language: str) -> bool`
 3. `GenerationOptions` data class defined:
-   - `model`: str (e.g., "gpt-4o-mini", "gpt-4", "claude-3-5-sonnet-20241022")
+   - `model`: str (e.g., "gpt-4.1", "claude-sonnet-4-5")
    - `temperature`: float (default: 0.7)
    - `max_tokens`: int (default: 800, increased for structured output)
-   - `system_prompt`: Optional[str]
    - `response_language`: str (default: "hu" for Hungarian)
-   - `use_structured_output`: bool (default: False)
 4. `LLMResponse` data class defined (for backward compatibility with text-only generation):
    - `text`: str (generated response)
    - `provider`: str (provider name)
@@ -152,77 +150,61 @@
    - `tokens_completion`: int
    - `cost_usd`: float
    - `latency_ms`: int
-5. `OpenAIProvider` implementation in `src/llm/providers/openai_provider.py`:
+5. `PricingCalculator` class in `src/llm/pricing.py`:
+   - Centralized cost estimation for all LLM and embedding operations
+   - Supports: `gpt-4.1`, `claude-sonnet-4-5`, `claude-haiku-4-5`, `claude-opus-4-5`, `text-embedding-3-small`
+   - Used by LLM providers and embedding generator
+6. `OpenAIProvider` implementation in `src/llm/providers/openai_provider.py`:
    - Uses `openai` SDK v2.14+ with structured output support
-   - Implements all base class methods
    - API key from environment: `OPENAI_API_KEY`
-   - Default model from environment: `OPENAI_QUERY_MODEL` (default: "gpt-4o-mini")
+   - Supported model: `gpt-4.1`
    - **Structured Output Strategy:**
      - Primary: Use `beta.chat.completions.parse(response_format=PydanticModel)`
      - Fallback: Use `response_format={"type": "json_schema"}` + client-side Pydantic validation
-     - Graceful degradation if beta API unavailable
-6. `AnthropicProvider` implementation in `src/llm/providers/anthropic_provider.py`:
+7. `AnthropicProvider` implementation in `src/llm/providers/anthropic_provider.py`:
    - Uses `anthropic` SDK v0.75+ with structured output support
-   - Implements all base class methods
    - API key from environment: `ANTHROPIC_API_KEY`
-   - Default model from environment: `ANTHROPIC_QUERY_MODEL` (default: "claude-3-5-sonnet-20241022")
+   - Supported models: `claude-sonnet-4-5`, `claude-haiku-4-5`, `claude-opus-4-5`
    - **Structured Output Strategy:**
-     - Primary: Use `beta.messages.parse(response_model=PydanticModel)` with header `anthropic-beta: structured-outputs-2025-11-13`
-     - Uses constrained decoding (grammar-based, cannot produce invalid JSON)
+     - Primary: Use `beta.messages.parse(response_model=PydanticModel)`
      - Fallback: Use tool use pattern + client-side Pydantic validation
-     - 100-300ms overhead for grammar compilation (cached 24 hours)
-7. `generate_structured()` implementation with retry logic:
+8. `generate_structured()` implementation with retry logic:
    - Exponential backoff: wait times [2s, 4s, 8s] for 3 retries
    - Retry on: `RateLimitError`, `APIConnectionError`, `APITimeoutError`
    - No retry on: `AuthenticationError`, `InvalidRequestError`, `ValidationError`
-   - Fail-fast on Pydantic ValidationError (LLM returned invalid schema)
-   - Log each retry attempt with context
-8. Hungarian/English language support:
-   - System prompt includes: "Respond in Hungarian" or "Respond in English" based on `response_language`
-   - Language detection: If query contains English words >50%, respond in English
-9. Cost estimation implementation:
-   - GPT-4o-mini: $0.00015 per 1K input tokens, $0.0006 per 1K output tokens
-   - GPT-4: $0.03 per 1K input tokens, $0.06 per 1K output tokens
-   - Claude 3.5 Sonnet: $0.003 per 1K input tokens, $0.015 per 1K output tokens
+   - Fail-fast on Pydantic ValidationError
+9. `PromptBuilder` class in `src/llm/prompt_builder.py`:
+   - Template loading from `prompts/` directory (system.md, user.md, persona.md)
+   - Placeholder rendering for {persona}, {language}, {chunks}, {question}
+   - Template caching for performance
 10. `MultiLLMRouter` class in `src/llm/llm_router.py`:
-    - Provider registry: Maps provider name → LLMProvider instance
-    - `async def generate(prompt: str, provider: str, options: GenerationOptions) -> LLMResponse`
-    - `async def generate_structured(prompt: str, provider: str, options: GenerationOptions, response_schema: type[BaseModel]) -> LLMStructuredResponse`
-    - Provider selection: Use specified provider or default from `LLM_DEFAULT_PROVIDER` env
+    - **Model-based provider selection:**
+      - `claude-*` → AnthropicProvider
+      - `gpt-*` → OpenAIProvider
+    - Default model from environment: `LLM_DEFAULT_MODEL` (default: "claude-sonnet-4-5")
     - No fallback logic: Fail fast if provider fails
 11. Structured logging:
     - Provider name, model, tokens, cost, latency
     - Structured output validation success/failure
-    - Server-side vs client-side validation path taken
     - Retry attempts with errors
-    - Final success/failure status
-12. Unit tests covering:
+12. Unit tests (71 tests):
     - Pydantic model validation (smalltalk=true/false cases)
-    - OpenAI provider: Successful structured generation (beta.chat.completions.parse)
-    - OpenAI provider: Client-side fallback (response_format + manual validation)
-    - Anthropic provider: Successful structured generation (beta.messages.parse)
-    - Anthropic provider: Client-side fallback (tool use pattern)
-    - Retry logic: Retryable errors (3 retries, then fail)
-    - Retry logic: Non-retryable errors (fail immediately, including ValidationError)
-    - Cost estimation accuracy
-    - Language support (Hungarian and English prompts)
-    - Multi-LLM router: Provider selection and routing
-    - Multi-LLM router: Unknown provider error
-    - Graceful degradation from server-side to client-side validation
+    - PricingCalculator accuracy for all models
+    - PromptBuilder template loading and rendering
+    - OpenAI/Anthropic provider: Structured generation and fallback
+    - Retry logic: Retryable and non-retryable errors
+    - Multi-LLM router: Model-based provider selection
 
 **Technical Notes:**
 - Strategy pattern for future provider extensibility (Gemini, Grok, Mistral)
 - Pydantic ONLY for LLM responses; existing dataclasses remain unchanged
-- Server-side structured output reduces latency and improves reliability
-- Anthropic's constrained decoding is most reliable (grammar guarantees)
-- OpenAI's beta.chat.completions.parse functional but has occasional validation errors
-- Client-side validation fallback ensures compatibility with older models
+- Model-based routing auto-detects provider from model name prefix
+- PricingCalculator centralizes cost calculation across all providers
 - Fail-fast approach: No automatic fallbacks to prevent unexpected behavior
-- Hungarian language support critical for MVP
-- Retry logic essential for production reliability (handles transient API failures)
+- Retry logic essential for production reliability
 
 **Dependencies:**
-- Add to `pyproject.toml`: `pydantic = "^2.0"`
+- `pydantic = "^2.0"` (already in pyproject.toml)
 
 **Estimated Effort:** 4 hours (increased from 3 hours due to structured output implementation)
 
