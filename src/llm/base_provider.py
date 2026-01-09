@@ -16,39 +16,13 @@ class GenerationOptions:
         model: Model identifier (e.g., "gpt-4.1", "claude-sonnet-4-5")
         temperature: Sampling temperature (0.0 = deterministic, 2.0 = very random)
         max_tokens: Maximum tokens to generate (default: 800, increased for structured output)
-        response_language: Language code for response (default: "hu" for Hungarian)
+        system_prompt: Optional system prompt for context/instructions
     """
 
     model: str
     temperature: float = 0.7
     max_tokens: int = 800
-    response_language: str = "hu"
-
-
-@dataclass
-class LLMResponse:
-    """Response from LLM text generation (backward compatibility).
-
-    This is used for unstructured text generation. For structured output,
-    use LLMStructuredResponse from structured_output.py instead.
-
-    Args:
-        text: Generated response text
-        provider: Provider name (e.g., "openai", "anthropic")
-        model: Model used for generation
-        tokens_prompt: Number of tokens in the prompt
-        tokens_completion: Number of tokens in the completion
-        cost_usd: Estimated cost in USD
-        latency_ms: Response latency in milliseconds
-    """
-
-    text: str
-    provider: str
-    model: str
-    tokens_prompt: int
-    tokens_completion: int
-    cost_usd: float
-    latency_ms: int
+    system_prompt: str | None = None
 
 
 class LLMProvider(ABC):
@@ -57,24 +31,6 @@ class LLMProvider(ABC):
     All LLM providers (OpenAI, Anthropic, Gemini, etc.) must implement
     this interface to ensure consistent behavior across the system.
     """
-
-    @abstractmethod
-    async def generate(self, prompt: str, options: GenerationOptions) -> LLMResponse:
-        """Generate unstructured text response.
-
-        Args:
-            prompt: User prompt to generate response for
-            options: Generation configuration options
-
-        Returns:
-            LLMResponse with generated text and metadata
-
-        Raises:
-            LLMProviderError: If generation fails
-            RateLimitError: If rate limit exceeded
-            AuthenticationError: If API key invalid
-        """
-        pass
 
     @abstractmethod
     async def generate_structured(

@@ -102,14 +102,11 @@ poetry run python -m src
 ### Running Tests
 
 ```bash
-# Run all tests with coverage
-poetry run pytest
+# Run with verbose output
+poetry run pytest -v
 
 # Run specific test file
 poetry run pytest tests/unit/test_logger.py
-
-# Run with verbose output
-poetry run pytest -v
 ```
 
 ```bash
@@ -123,6 +120,11 @@ poetry run python tests/e2e/fixtures/extract_minimal_xml.py
 
 # Run e2e tests with real APIs (costs money)
 poetry run pytest -m e2e
+```
+
+```bash
+# run ALL (e2e, integration and long included) test
+poetry run pytest -m ""
 ```
 
 ### Code Quality
