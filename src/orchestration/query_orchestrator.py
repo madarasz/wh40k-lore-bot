@@ -5,7 +5,6 @@ import os
 import time
 import uuid
 from dataclasses import dataclass
-from pathlib import Path
 
 import numpy as np
 import structlog
@@ -14,6 +13,7 @@ from pydantic import ValidationError as PydanticValidationError
 from src.ingestion.embedding_generator import EmbeddingGenerator
 from src.llm.base_provider import GenerationOptions
 from src.llm.llm_router import MultiLLMRouter
+from src.llm.prompt_builder import PromptBuilder
 from src.llm.response_formatter import ResponseFormatter
 from src.llm.structured_output import LLMStructuredResponse
 from src.rag.context_expander import ContextExpander
@@ -31,11 +31,6 @@ logger = structlog.get_logger(__name__)
 # Environment configuration defaults
 DEFAULT_QUERY_TIMEOUT_SECONDS = 10
 DEFAULT_BOT_PERSONALITY = "default"
-
-# Prompt file paths
-PROMPTS_DIR = Path(__file__).parent.parent.parent / "prompts"
-SYSTEM_PROMPT_FILE = "system.md"
-USER_PROMPT_FILE = "user.md"
 
 
 @dataclass
@@ -160,6 +155,9 @@ class QueryOrchestrator:
         # Load configuration from environment
         self._load_config()
 
+        # Initialize prompt builder for template loading
+        self.prompt_builder = PromptBuilder()
+
         logger.info(
             "query_orchestrator_initialized",
             timeout_seconds=self.timeout_seconds,
@@ -276,88 +274,89 @@ class QueryOrchestrator:
         )
 
         try:
-            # Step 1: Embedding generation
-            step_start = time.perf_counter()
-            query_embedding = await self._generate_embedding(request.query_text)
-            timings.embedding_ms = int((time.perf_counter() - step_start) * 1000)
-            logger.info(
-                "embedding_generated",
-                query_id=query_id,
-                latency_ms=timings.embedding_ms,
-            )
+            async with asyncio.timeout(self.timeout_seconds):
+                # Step 1: Embedding generation
+                step_start = time.perf_counter()
+                query_embedding = await self._generate_embedding(request.query_text)
+                timings.embedding_ms = int((time.perf_counter() - step_start) * 1000)
+                logger.info(
+                    "embedding_generated",
+                    query_id=query_id,
+                    latency_ms=timings.embedding_ms,
+                )
 
-            # Step 2: Hybrid retrieval (always executes)
-            step_start = time.perf_counter()
-            chunks = await self.hybrid_retrieval.retrieve(
-                query_embedding=query_embedding,
-                query_text=request.query_text,
-            )
-            timings.retrieval_ms = int((time.perf_counter() - step_start) * 1000)
-            logger.info(
-                "retrieval_completed",
-                query_id=query_id,
-                chunks_retrieved=len(chunks),
-                latency_ms=timings.retrieval_ms,
-            )
+                # Step 2: Hybrid retrieval (always executes)
+                step_start = time.perf_counter()
+                chunks = await self.hybrid_retrieval.retrieve(
+                    query_embedding=query_embedding,
+                    query_text=request.query_text,
+                )
+                timings.retrieval_ms = int((time.perf_counter() - step_start) * 1000)
+                logger.info(
+                    "retrieval_completed",
+                    query_id=query_id,
+                    chunks_retrieved=len(chunks),
+                    latency_ms=timings.retrieval_ms,
+                )
 
-            # Step 3: Context expansion
-            step_start = time.perf_counter()
-            # Extract ChunkData from tuples
-            chunk_data_list = [chunk for chunk, score in chunks]
-            expanded_chunks = await self.context_expander.expand_context(chunk_data_list)
-            timings.expansion_ms = int((time.perf_counter() - step_start) * 1000)
-            logger.info(
-                "context_expanded",
-                query_id=query_id,
-                initial_chunks=len(chunk_data_list),
-                expanded_chunks=len(expanded_chunks),
-                latency_ms=timings.expansion_ms,
-            )
+                # Step 3: Context expansion
+                step_start = time.perf_counter()
+                # Extract ChunkData from tuples
+                chunk_data_list = [chunk for chunk, score in chunks]
+                expanded_chunks = await self.context_expander.expand_context(chunk_data_list)
+                timings.expansion_ms = int((time.perf_counter() - step_start) * 1000)
+                logger.info(
+                    "context_expanded",
+                    query_id=query_id,
+                    initial_chunks=len(chunk_data_list),
+                    expanded_chunks=len(expanded_chunks),
+                    latency_ms=timings.expansion_ms,
+                )
 
-            # Step 4: LLM structured generation (includes language detection)
-            step_start = time.perf_counter()
-            llm_response = await self._generate_llm_response(
-                query_text=request.query_text,
-                chunks=expanded_chunks,
-            )
-            timings.llm_ms = int((time.perf_counter() - step_start) * 1000)
-            logger.info(
-                "llm_response_generated",
-                query_id=query_id,
-                smalltalk=llm_response.smalltalk,
-                detected_language=llm_response.language,
-                latency_ms=timings.llm_ms,
-            )
+                # Step 4: LLM structured generation (includes language detection)
+                step_start = time.perf_counter()
+                llm_response = await self._generate_llm_response(
+                    query_text=request.query_text,
+                    chunks=expanded_chunks,
+                )
+                timings.llm_ms = int((time.perf_counter() - step_start) * 1000)
+                logger.info(
+                    "llm_response_generated",
+                    query_id=query_id,
+                    smalltalk=llm_response.smalltalk,
+                    detected_language=llm_response.language,
+                    latency_ms=timings.llm_ms,
+                )
 
-            # Step 5: Build QueryResponse
-            total_latency = int((time.perf_counter() - start_time) * 1000)
+                # Step 5: Build QueryResponse
+                total_latency = int((time.perf_counter() - start_time) * 1000)
 
-            response = QueryResponse(
-                answer=llm_response.answer or "",
-                personality_reply=llm_response.personality_reply,
-                sources=[str(url) for url in (llm_response.sources or [])],
-                smalltalk=llm_response.smalltalk,
-                language=llm_response.language,
-                metadata={
-                    "latency_ms": total_latency,
-                    "embedding_ms": timings.embedding_ms,
-                    "retrieval_ms": timings.retrieval_ms,
-                    "expansion_ms": timings.expansion_ms,
-                    "llm_ms": timings.llm_ms,
-                    "chunks_retrieved": len(chunks),
-                    "chunks_expanded": len(expanded_chunks),
-                },
-            )
+                response = QueryResponse(
+                    answer=llm_response.answer or "",
+                    personality_reply=llm_response.personality_reply,
+                    sources=[str(url) for url in (llm_response.sources or [])],
+                    smalltalk=llm_response.smalltalk,
+                    language=llm_response.language,
+                    metadata={
+                        "latency_ms": total_latency,
+                        "embedding_ms": timings.embedding_ms,
+                        "retrieval_ms": timings.retrieval_ms,
+                        "expansion_ms": timings.expansion_ms,
+                        "llm_ms": timings.llm_ms,
+                        "chunks_retrieved": len(chunks),
+                        "chunks_expanded": len(expanded_chunks),
+                    },
+                )
 
-            logger.info(
-                "query_completed",
-                query_id=query_id,
-                success=True,
-                smalltalk=llm_response.smalltalk,
-                total_latency_ms=total_latency,
-            )
+                logger.info(
+                    "query_completed",
+                    query_id=query_id,
+                    success=True,
+                    smalltalk=llm_response.smalltalk,
+                    total_latency_ms=total_latency,
+                )
 
-            return response
+                return response
 
         except RetrievalError as e:
             logger.error(
@@ -461,9 +460,13 @@ class QueryOrchestrator:
         Note:
             This method should only be called from process() which validates
             that llm_router is not None.
+
+        Raises:
+            ConfigurationError: If llm_router is not configured
         """
-        # Assert for type narrowing - process() validates this before calling
-        assert self.llm_router is not None
+        # Explicit check for type narrowing - process() validates this before calling
+        if self.llm_router is None:
+            raise ConfigurationError("LLM router must be configured for generation")
 
         # Build system prompt (persona + instructions)
         system_prompt = self._build_system_prompt()
@@ -484,21 +487,12 @@ class QueryOrchestrator:
     def _build_system_prompt(self) -> str:
         """Build system prompt based on personality mode.
 
-        Loads the system prompt template and persona from /prompts/ directory files.
-        Uses .format() to properly handle escaped braces in JSON examples.
+        Uses PromptBuilder to load system prompt template and persona files.
 
         Returns:
             System prompt string with persona and language detection instructions
         """
-        # Load system prompt template
-        system_template = (PROMPTS_DIR / SYSTEM_PROMPT_FILE).read_text()
-
-        # Select persona file based on personality setting
-        persona_file = f"persona-{self.personality}.md"
-        persona_content = (PROMPTS_DIR / persona_file).read_text()
-
-        # Substitute {persona} placeholder using .format() to handle escaped braces
-        return system_template.format(persona=persona_content.strip())
+        return self.prompt_builder.build_system_prompt(self.personality)
 
     def _build_user_prompt(self, query_text: str, chunks: list[ChunkData]) -> str:
         """Build user prompt from template with context and question.
@@ -510,14 +504,10 @@ class QueryOrchestrator:
         Returns:
             User prompt string with context and question
         """
-        # Load user prompt template
-        user_template = (PROMPTS_DIR / USER_PROMPT_FILE).read_text()
-
         # Build context from chunks
         context = self._build_context(chunks)
 
-        # Substitute placeholders
-        return user_template.format(chunks=context, question=query_text)
+        return self.prompt_builder.build_user_prompt(context, query_text)
 
     def _build_context(self, chunks: list[ChunkData]) -> str:
         """Build context string from chunks.

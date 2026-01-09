@@ -21,15 +21,15 @@ class TestPromptBuilder:
         assert builder.prompts_dir.exists()
         assert (builder.prompts_dir / "system.md").exists()
         assert (builder.prompts_dir / "user.md").exists()
-        assert (builder.prompts_dir / "persona.md").exists()
+        assert (builder.prompts_dir / "persona-default.md").exists()
 
     def test_initialization_missing_directory_fails(self, tmp_path: Path) -> None:
         """Test initialization fails with missing directory."""
         with pytest.raises(ConfigurationError, match="Prompts directory not found"):
             PromptBuilder(prompts_dir=tmp_path / "nonexistent")
 
-    def test_load_persona(self, builder: PromptBuilder) -> None:
-        """Test loading persona template."""
+    def test_load_persona_default(self, builder: PromptBuilder) -> None:
+        """Test loading default persona template."""
         persona = builder.load_persona()
         assert isinstance(persona, str)
         assert len(persona) > 0
@@ -37,6 +37,17 @@ class TestPromptBuilder:
         assert any(
             word in persona.lower()
             for word in ["imperial", "scholar", "emperor", "warhammer", "gravitas"]
+        )
+
+    def test_load_persona_grimdark(self, builder: PromptBuilder) -> None:
+        """Test loading grimdark persona template."""
+        persona = builder.load_persona("grimdark")
+        assert isinstance(persona, str)
+        assert len(persona) > 0
+        # Grimdark persona should contain dramatic language
+        assert any(
+            word in persona.lower()
+            for word in ["grimdark", "narrator", "dramatic", "darkness", "war"]
         )
 
     def test_build_system_prompt_contains_persona(self, builder: PromptBuilder) -> None:
@@ -84,10 +95,10 @@ class TestPromptBuilder:
         """Test templates are cached."""
         # First load
         builder.load_persona()
-        assert "persona.md" in builder._template_cache
+        assert "persona-default.md" in builder._template_cache
 
         # Cache should be used on second load
-        cached_content = builder._template_cache["persona.md"]
+        cached_content = builder._template_cache["persona-default.md"]
         persona2 = builder.load_persona()
         assert persona2.strip() == cached_content.strip()
 

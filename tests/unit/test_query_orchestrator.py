@@ -1,5 +1,6 @@
 """Unit tests for QueryOrchestrator."""
 
+import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import numpy as np
@@ -588,8 +589,6 @@ class TestErrorResponse:
 
     def test_error_response_creation(self, orchestrator: QueryOrchestrator) -> None:
         """Test error response has correct structure."""
-        import time
-
         start_time = time.perf_counter()
         response = orchestrator._error_response("Test error message", start_time)
 

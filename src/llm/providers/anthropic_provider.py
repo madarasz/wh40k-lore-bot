@@ -85,6 +85,7 @@ class AnthropicProvider(LLMProvider):
                 "model": model,
                 "messages": [{"role": "user", "content": prompt}],
                 "max_tokens": options.max_tokens,
+                "temperature": options.temperature,
                 "response_model": response_schema,
                 "extra_headers": {"anthropic-beta": "structured-outputs-2025-11-13"},
             }
