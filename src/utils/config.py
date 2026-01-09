@@ -8,6 +8,24 @@ from dotenv import load_dotenv
 from src.utils.exceptions import ConfigurationError
 
 
+def get_required_env(key: str) -> str:
+    """Get required environment variable or raise error.
+
+    Args:
+        key: Environment variable name
+
+    Returns:
+        Environment variable value
+
+    Raises:
+        ConfigurationError: If variable is not set
+    """
+    value = os.getenv(key)
+    if not value:
+        raise ConfigurationError(f"{key} environment variable is not set")
+    return value
+
+
 class Config:
     """Application configuration loaded from environment variables."""
 

@@ -8,6 +8,7 @@ import numpy as np
 import structlog
 from openai import AuthenticationError, OpenAI, OpenAIError, RateLimitError
 
+from src.llm.pricing import pricing_calculator
 from src.utils.exceptions import ConfigurationError, EmbeddingGenerationError
 
 logger = structlog.get_logger(__name__)
@@ -53,7 +54,6 @@ class EmbeddingGenerator:
     # Model configuration
     MODEL_NAME = "text-embedding-3-small"
     EMBEDDING_DIMENSIONS = 1536
-    COST_PER_MILLION_TOKENS = 0.02  # $0.02 per 1M tokens
 
     # Batch configuration
     MAX_BATCH_SIZE = 100  # OpenAI limit
@@ -185,9 +185,11 @@ class EmbeddingGenerator:
                     np.array(item.embedding, dtype=np.float32) for item in response.data
                 ]
 
-                # Track cost
+                # Track cost using centralized PricingCalculator
                 tokens_used = response.usage.total_tokens
-                cost = tokens_used * (self.COST_PER_MILLION_TOKENS / 1_000_000)
+                cost = pricing_calculator.calculate_cost(
+                    model=self.MODEL_NAME, prompt_tokens=tokens_used, completion_tokens=0
+                )
                 self.total_tokens += tokens_used
                 self.total_cost += cost
 
@@ -260,8 +262,9 @@ class EmbeddingGenerator:
         Returns:
             Dictionary with total_tokens, total_cost_usd, and cost_per_1k_tokens
         """
+        pricing = pricing_calculator.get_model_pricing(self.MODEL_NAME)
         return {
             "total_tokens": self.total_tokens,
             "total_cost_usd": round(self.total_cost, 4),
-            "cost_per_1k_tokens": round((self.COST_PER_MILLION_TOKENS / 1000), 6),  # $0.00002
+            "cost_per_1k_tokens": pricing["input"],
         }
