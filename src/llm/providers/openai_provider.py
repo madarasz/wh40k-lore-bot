@@ -87,6 +87,8 @@ class OpenAIProvider(LLMProvider):
             tokens_completion = response.usage.completion_tokens if response.usage else 0
             cost_usd = pricing_calculator.calculate_cost(model, tokens_prompt, tokens_completion)
 
+            if not response.choices:
+                raise LLMProviderError("OpenAI returned empty choices list")
             text = response.choices[0].message.content or ""
 
             logger.info(
@@ -165,6 +167,8 @@ class OpenAIProvider(LLMProvider):
             )
 
             # Return the parsed Pydantic model
+            if not completion.choices:
+                raise LLMProviderError("OpenAI returned empty choices list")
             return completion.choices[0].message.parsed  # type: ignore[no-any-return]
 
         except AttributeError:
@@ -226,6 +230,8 @@ class OpenAIProvider(LLMProvider):
             latency_ms = int((time.time() - start_time) * 1000)
 
             # Parse and validate JSON
+            if not completion.choices:
+                raise LLMProviderError("OpenAI returned empty choices list")
             json_content = completion.choices[0].message.content or "{}"
             json_response = json.loads(json_content)
             validated_response = response_schema.model_validate(json_response)

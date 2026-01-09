@@ -33,6 +33,13 @@ class MultiLLMRouter:
         self.providers: dict[str, LLMProvider] = {}
         self.default_model = os.getenv("LLM_DEFAULT_MODEL", self.DEFAULT_MODEL)
 
+        # Validate default model at initialization (fail fast)
+        if not self.default_model.startswith(("claude-", "gpt-")):
+            raise LLMProviderError(
+                f"Invalid LLM_DEFAULT_MODEL: {self.default_model}. "
+                "Model name must start with 'claude-' or 'gpt-'"
+            )
+
         # Initialize providers
         self._register_provider("openai", OpenAIProvider())
         self._register_provider("anthropic", AnthropicProvider())
