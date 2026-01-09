@@ -62,3 +62,9 @@ class ValidationError(WH40KLoreBotError):
     """Input validation error."""
 
     pass
+
+
+class InvalidQueryError(ValidationError):
+    """Invalid query input error (too short, too long, invalid encoding)."""
+
+    pass

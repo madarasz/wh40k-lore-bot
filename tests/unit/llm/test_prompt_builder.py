@@ -39,24 +39,24 @@ class TestPromptBuilder:
             for word in ["imperial", "scholar", "emperor", "warhammer", "gravitas"]
         )
 
-    def test_build_system_prompt_hungarian(self, builder: PromptBuilder) -> None:
-        """Test building system prompt with Hungarian language."""
-        prompt = builder.build_system_prompt(language="hu")
+    def test_build_system_prompt_contains_persona(self, builder: PromptBuilder) -> None:
+        """Test building system prompt includes persona."""
+        prompt = builder.build_system_prompt()
         assert isinstance(prompt, str)
-        assert "Hungarian" in prompt
         # Should contain persona content
         assert "Imperial" in prompt or "scholar" in prompt.lower()
 
-    def test_build_system_prompt_english(self, builder: PromptBuilder) -> None:
-        """Test building system prompt with English language."""
-        prompt = builder.build_system_prompt(language="en")
-        assert isinstance(prompt, str)
+    def test_build_system_prompt_contains_language_detection(self, builder: PromptBuilder) -> None:
+        """Test system prompt includes language detection instructions."""
+        prompt = builder.build_system_prompt()
+        assert "Language Detection" in prompt
+        assert "Hungarian" in prompt
         assert "English" in prompt
 
-    def test_build_system_prompt_default_hungarian(self, builder: PromptBuilder) -> None:
-        """Test system prompt defaults to Hungarian."""
+    def test_build_system_prompt_contains_json_format(self, builder: PromptBuilder) -> None:
+        """Test system prompt contains JSON response format."""
         prompt = builder.build_system_prompt()
-        assert "Hungarian" in prompt
+        assert '"language": "HU" or "EN"' in prompt
 
     def test_build_user_prompt(self, builder: PromptBuilder) -> None:
         """Test building user prompt."""

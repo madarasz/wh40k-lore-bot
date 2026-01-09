@@ -73,26 +73,18 @@ class PromptBuilder:
         """
         return self._load_template("persona.md").strip()
 
-    def build_system_prompt(self, language: str = "hu") -> str:
-        """Build the system prompt with persona and language.
+    def build_system_prompt(self) -> str:
+        """Build the system prompt with persona.
 
-        Args:
-            language: Language code for response (default: "hu" for Hungarian)
+        Language detection is handled by the LLM itself based on the user's question.
 
         Returns:
-            Rendered system prompt
+            Rendered system prompt with persona injected
         """
         template = self._load_template("system.md")
         persona = self.load_persona()
 
-        # Map language codes to full names
-        language_names = {
-            "hu": "Hungarian",
-            "en": "English",
-        }
-        language_name = language_names.get(language, language)
-
-        return template.format(persona=persona, language=language_name)
+        return template.format(persona=persona)
 
     def build_user_prompt(self, chunks: str, question: str) -> str:
         """Build the user prompt with context and question.
