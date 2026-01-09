@@ -14,13 +14,13 @@ class PricingCalculator:
 
     # Pricing per 1K tokens (USD) - updated December 2025
     PRICING: dict[str, dict[str, float]] = {
-        # OpenAI LLM
+        # OpenAI LLM, https://platform.openai.com/docs/pricing
         "gpt-4.1": {"input": 0.002, "output": 0.008},
-        # Anthropic LLM
-        "claude-sonnet-4-5": {"input": 0.003, "output": 0.015},
-        "claude-haiku-4-5": {"input": 0.0008, "output": 0.004},
-        "claude-opus-4-5": {"input": 0.015, "output": 0.075},
-        # OpenAI Embeddings
+        # Anthropic LLM, https://www.claude.com/pricing#api
+        "claude-haiku-4-5": {"input": 0.001, "output": 0.005},
+        "claude-sonnet-4-5": {"input": 0.003, "output": 0.006},
+        "claude-opus-4-5": {"input": 0.005, "output": 0.025},
+        # OpenAI Embeddings, https://platform.openai.com/docs/pricing
         "text-embedding-3-small": {"input": 0.00002, "output": 0.0},
     }
 
