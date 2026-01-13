@@ -5,7 +5,7 @@ import os
 import structlog
 from pydantic import BaseModel
 
-from src.llm.base_provider import GenerationOptions, LLMProvider, LLMResponse
+from src.llm.base_provider import GenerationOptions, LLMProvider
 from src.llm.providers.anthropic_provider import AnthropicProvider
 from src.llm.providers.openai_provider import OpenAIProvider
 from src.llm.structured_output import LLMStructuredResponse
@@ -80,40 +80,6 @@ class MultiLLMRouter:
             raise LLMProviderError(
                 f"Unknown model: {model}. Model name must start with 'claude-' or 'gpt-'"
             )
-
-    async def generate(
-        self,
-        prompt: str,
-        options: GenerationOptions | None = None,
-    ) -> LLMResponse:
-        """Generate unstructured text response.
-
-        Args:
-            prompt: User prompt to generate response for
-            options: Optional generation options (uses defaults if not specified)
-
-        Returns:
-            LLMResponse with generated text and metadata
-
-        Raises:
-            LLMProviderError: If generation fails or model not recognized
-            RateLimitError: If rate limit exceeded
-            AuthenticationError: If API key invalid
-        """
-        if options is None:
-            options = GenerationOptions(model=self.default_model)
-
-        model = options.model or self.default_model
-        selected_provider = self._get_provider_for_model(model)
-
-        logger.info(
-            "routing_generation_request",
-            provider=selected_provider.get_provider_name(),
-            model=model,
-            prompt_length=len(prompt),
-        )
-
-        return await selected_provider.generate(prompt, options)
 
     async def generate_structured(
         self,

@@ -24,6 +24,7 @@ def lore_response() -> LLMStructuredResponse:
             HttpUrl("https://warhammer40k.fandom.com/wiki/Ultramarines"),
         ],
         smalltalk=False,
+        language="HU",
     )
 
 
@@ -35,6 +36,7 @@ def smalltalk_response() -> LLMStructuredResponse:
         personality_reply="Üdvözöllek a 41. évezredben! Készen állok válaszolni.",
         sources=None,
         smalltalk=True,
+        language="HU",
     )
 
 
@@ -142,6 +144,7 @@ class TestSourceLimitEnforcement:
                 HttpUrl("https://warhammer40k.fandom.com/wiki/Source7"),
             ],
             smalltalk=False,
+            language="EN",
         )
 
         result = formatter.format_cli_response(response)
@@ -170,6 +173,7 @@ class TestSourceLimitEnforcement:
                 HttpUrl("https://warhammer40k.fandom.com/wiki/Source5"),
             ],
             smalltalk=False,
+            language="EN",
         )
 
         result = formatter.format_cli_response(response)
@@ -229,6 +233,7 @@ class TestEmptySourcesEdgeCase:
             personality_reply="Hello there!",
             sources=None,
             smalltalk=True,
+            language="EN",
         )
 
         result = formatter.format_cli_response(response)

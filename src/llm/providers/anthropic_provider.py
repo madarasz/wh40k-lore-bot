@@ -16,8 +16,7 @@ from anthropic import (
 from pydantic import BaseModel
 from pydantic import ValidationError as PydanticValidationError
 
-from src.llm.base_provider import GenerationOptions, LLMProvider, LLMResponse
-from src.llm.pricing import pricing_calculator
+from src.llm.base_provider import GenerationOptions, LLMProvider
 from src.llm.structured_output import LLMStructuredResponse
 from src.utils.config import get_required_env
 from src.utils.exceptions import LLMProviderError
@@ -31,7 +30,6 @@ class AnthropicProvider(LLMProvider):
     Supports:
     - claude-sonnet-4-5, claude-haiku-4-5, claude-opus-4-5
     - Structured output via beta.messages.parse() with constrained decoding
-    - Fallback to tool use pattern + client-side validation
     - Retry logic with exponential backoff
     """
 
@@ -54,65 +52,6 @@ class AnthropicProvider(LLMProvider):
         """Get provider identifier."""
         return "anthropic"
 
-    async def generate(self, prompt: str, options: GenerationOptions) -> LLMResponse:
-        """Generate unstructured text response.
-
-        Args:
-            prompt: User prompt to generate response for
-            options: Generation configuration options
-
-        Returns:
-            LLMResponse with generated text and metadata
-
-        Raises:
-            LLMProviderError: If generation fails
-            RateLimitError: If rate limit exceeded
-            AuthenticationError: If API key invalid
-        """
-        start_time = time.time()
-        model = options.model or self.DEFAULT_MODEL
-
-        try:
-            response = await self._retry_with_backoff(
-                self.client.messages.create,
-                model=model,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=options.temperature,
-                max_tokens=options.max_tokens,
-            )
-
-            latency_ms = int((time.time() - start_time) * 1000)
-            tokens_prompt = response.usage.input_tokens
-            tokens_completion = response.usage.output_tokens
-            cost_usd = pricing_calculator.calculate_cost(model, tokens_prompt, tokens_completion)
-
-            text = response.content[0].text if response.content else ""
-
-            logger.info(
-                "anthropic_generation_success",
-                model=model,
-                tokens_prompt=tokens_prompt,
-                tokens_completion=tokens_completion,
-                cost_usd=cost_usd,
-                latency_ms=latency_ms,
-            )
-
-            return LLMResponse(
-                text=text,
-                provider=self.get_provider_name(),
-                model=model,
-                tokens_prompt=tokens_prompt,
-                tokens_completion=tokens_completion,
-                cost_usd=cost_usd,
-                latency_ms=latency_ms,
-            )
-
-        except (RateLimitError, AuthenticationError):
-            raise
-        except Exception as e:
-            logger.error("anthropic_generation_failed", error=str(e), exc_info=True)
-            raise LLMProviderError(f"Anthropic generation failed: {e}") from e
-
     async def generate_structured(
         self,
         prompt: str,
@@ -121,8 +60,7 @@ class AnthropicProvider(LLMProvider):
     ) -> LLMStructuredResponse:
         """Generate structured JSON response with Pydantic validation.
 
-        Uses beta.messages.parse() with constrained decoding for server-side
-        validation with fallback to tool use pattern if beta API fails.
+        Uses beta.messages.parse() with constrained decoding for server-side validation.
 
         Args:
             prompt: User prompt to generate response for
@@ -141,22 +79,28 @@ class AnthropicProvider(LLMProvider):
         start_time = time.time()
         model = options.model or self.DEFAULT_MODEL
 
-        # Try server-side constrained decoding first
         try:
+            # Build API call kwargs
+            api_kwargs: dict[str, Any] = {
+                "model": model,
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": options.max_tokens,
+                "temperature": options.temperature,
+                "response_model": response_schema,
+                "extra_headers": {"anthropic-beta": "structured-outputs-2025-11-13"},
+            }
+            if options.system_prompt:
+                api_kwargs["system"] = options.system_prompt
+
             message = await self._retry_with_backoff(
                 self.client.beta.messages.parse,
-                model=model,
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=options.max_tokens,
-                response_model=response_schema,
-                extra_headers={"anthropic-beta": "structured-outputs-2025-11-13"},
+                **api_kwargs,
             )
 
             latency_ms = int((time.time() - start_time) * 1000)
 
             logger.info(
                 "anthropic_structured_generation_success",
-                validation_type="server_side",
                 model=model,
                 latency_ms=latency_ms,
             )
@@ -164,89 +108,15 @@ class AnthropicProvider(LLMProvider):
             # Return the parsed Pydantic model
             return message.parsed  # type: ignore[no-any-return]
 
-        except AttributeError:
-            # Beta API not available, fall back to tool use pattern
-            logger.warning("anthropic_beta_api_unavailable", fallback="tool_use_pattern")
-            return await self._generate_structured_fallback(
-                prompt, options, response_schema, start_time
-            )
-
         except (RateLimitError, AuthenticationError):
             raise
         except PydanticValidationError:
             # LLM returned invalid schema - fail fast
-            logger.error("anthropic_validation_failed", validation_type="server_side")
+            logger.error("anthropic_validation_failed")
             raise
         except Exception as e:
             logger.error("anthropic_structured_generation_failed", error=str(e), exc_info=True)
             raise LLMProviderError(f"Anthropic structured generation failed: {e}") from e
-
-    async def _generate_structured_fallback(
-        self,
-        prompt: str,
-        options: GenerationOptions,
-        response_schema: type[BaseModel],
-        start_time: float,
-    ) -> LLMStructuredResponse:
-        """Fallback to tool use pattern when beta API unavailable.
-
-        Args:
-            prompt: User prompt
-            options: Generation options
-            response_schema: Pydantic model class
-            start_time: Request start timestamp
-
-        Returns:
-            Validated LLMStructuredResponse instance
-
-        Raises:
-            ValidationError: If LLM returned invalid JSON schema
-        """
-        model = options.model or self.DEFAULT_MODEL
-
-        # Create tool definition from Pydantic schema
-        tool_definition = {
-            "name": "respond",
-            "description": "Respond to the user query with structured data",
-            "input_schema": response_schema.model_json_schema(),
-        }
-
-        try:
-            response = await self._retry_with_backoff(
-                self.client.messages.create,
-                model=model,
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=options.max_tokens,
-                tools=[tool_definition],
-                tool_choice={"type": "tool", "name": "respond"},
-            )
-
-            latency_ms = int((time.time() - start_time) * 1000)
-
-            # Extract tool use result
-            tool_use = next(
-                (block for block in response.content if block.type == "tool_use"),
-                None,
-            )
-
-            if not tool_use:
-                raise LLMProviderError("No tool use in response")
-
-            # Validate with Pydantic
-            validated_response = response_schema.model_validate(tool_use.input)
-
-            logger.info(
-                "anthropic_structured_generation_success",
-                validation_type="client_side",
-                model=model,
-                latency_ms=latency_ms,
-            )
-
-            return validated_response  # type: ignore[return-value]
-
-        except PydanticValidationError:
-            logger.error("anthropic_validation_failed", validation_type="client_side")
-            raise
 
     async def _retry_with_backoff(
         self,

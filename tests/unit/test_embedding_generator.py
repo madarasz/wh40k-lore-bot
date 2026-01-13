@@ -328,6 +328,7 @@ class TestEmbeddingGenerator:
         assert abs(summary["total_cost_usd"] - expected_cost) < 0.0001
         assert summary["cost_per_1k_tokens"] == model_pricing["input"]
 
+    @pytest.mark.long
     @patch("src.ingestion.embedding_generator.OpenAI")
     def test_partial_failure_handling(self, mock_openai_class):
         """Test handling when some chunks fail."""

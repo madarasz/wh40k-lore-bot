@@ -106,11 +106,12 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "-v --cov=src --cov-report=html --cov-report=term-missing -m 'not e2e and not integration'"
+addopts = "-v --cov=src --cov-report=html --cov-report=term-missing -m 'not e2e and not integration and not long'"
 asyncio_mode = "auto"
 markers = [
     "e2e: End-to-end CLI workflow tests (not run by default)",
     "integration: Integration tests requiring external APIs (not run by default)",
+    "long: Unit tests taking more time than 1 second"
 ]
 
 [tool.coverage.run]

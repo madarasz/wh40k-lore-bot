@@ -1,6 +1,6 @@
 """Structured output models for LLM responses using Pydantic validation."""
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, HttpUrl, model_validator
 
@@ -13,12 +13,14 @@ class LLMStructuredResponse(BaseModel):
     - When smalltalk=true: answer and sources are optional
     - personality_reply is always required for all responses
     - sources must be valid HTTP URLs
+    - language detected from user query (HU or EN)
     """
 
     answer: str | None = None
     personality_reply: str
     sources: list[HttpUrl] | None = None
     smalltalk: bool
+    language: Literal["HU", "EN"]
 
     @model_validator(mode="after")
     def validate_lore_fields(self) -> "LLMStructuredResponse":

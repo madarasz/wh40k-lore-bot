@@ -65,34 +65,34 @@ class PromptBuilder:
         logger.debug("template_loaded", template=template_name)
         return content
 
-    def load_persona(self) -> str:
-        """Load the persona template.
+    def load_persona(self, personality: str = "default") -> str:
+        """Load the persona template for a given personality.
+
+        Args:
+            personality: Personality mode (e.g., "default", "grimdark").
+                        Uses persona-{personality}.md file.
 
         Returns:
             Persona definition string
         """
-        return self._load_template("persona.md").strip()
+        persona_file = f"persona-{personality}.md"
+        return self._load_template(persona_file).strip()
 
-    def build_system_prompt(self, language: str = "hu") -> str:
-        """Build the system prompt with persona and language.
+    def build_system_prompt(self, personality: str = "default") -> str:
+        """Build the system prompt with persona for a given personality.
+
+        Language detection is handled by the LLM itself based on the user's question.
 
         Args:
-            language: Language code for response (default: "hu" for Hungarian)
+            personality: Personality mode (e.g., "default", "grimdark")
 
         Returns:
-            Rendered system prompt
+            Rendered system prompt with persona injected
         """
         template = self._load_template("system.md")
-        persona = self.load_persona()
+        persona = self.load_persona(personality)
 
-        # Map language codes to full names
-        language_names = {
-            "hu": "Hungarian",
-            "en": "English",
-        }
-        language_name = language_names.get(language, language)
-
-        return template.format(persona=persona, language=language_name)
+        return template.format(persona=persona)
 
     def build_user_prompt(self, chunks: str, question: str) -> str:
         """Build the user prompt with context and question.

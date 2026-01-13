@@ -299,6 +299,7 @@ class TestChromaIntegration:
         for _, distance in results:
             assert -0.001 <= distance <= 2
 
+    @pytest.mark.long
     def test_batch_insertion(self, vector_store):
         """Test insertion of >1000 chunks (multiple batches)."""
         # Create 2500 chunks
