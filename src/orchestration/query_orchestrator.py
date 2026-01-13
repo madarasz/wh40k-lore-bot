@@ -4,7 +4,6 @@ import asyncio
 import os
 import time
 import uuid
-from dataclasses import dataclass
 
 import numpy as np
 import structlog
@@ -16,6 +15,14 @@ from src.llm.llm_router import MultiLLMRouter
 from src.llm.prompt_builder import PromptBuilder
 from src.llm.response_formatter import ResponseFormatter
 from src.llm.structured_output import LLMStructuredResponse
+from src.orchestration.models import (
+    QueryRequest,
+    QueryResponse,
+    RetrievalMetadata,
+    RetrievalPipelineResult,
+    RetrievalResult,
+    StepTimings,
+)
 from src.rag.context_expander import ContextExpander
 from src.rag.hybrid_retrieval import HybridRetrievalService
 from src.rag.vector_store import ChunkData
@@ -31,88 +38,6 @@ logger = structlog.get_logger(__name__)
 # Environment configuration defaults
 DEFAULT_QUERY_TIMEOUT_SECONDS = 10
 DEFAULT_BOT_PERSONALITY = "default"
-
-
-@dataclass
-class QueryRequest:
-    """Request object for query processing.
-
-    Attributes:
-        query_text: The user's question or query
-        user_id: Optional user identifier for logging
-        server_id: Optional server identifier for logging
-    """
-
-    query_text: str
-    user_id: str | None = None
-    server_id: str | None = None
-
-
-@dataclass
-class QueryResponse:
-    """Response object from query processing.
-
-    Attributes:
-        answer: The LLM-generated answer (empty if smalltalk)
-        personality_reply: Thematic closing statement (always present)
-        sources: List of wiki URLs as strings
-        smalltalk: True if this was a smalltalk response
-        language: Detected language code ("HU" or "EN")
-        metadata: Performance and cost metadata
-        error: Error message if processing failed
-    """
-
-    answer: str
-    personality_reply: str
-    sources: list[str]
-    smalltalk: bool
-    language: str
-    metadata: dict[str, int | float | str]
-    error: str | None = None
-
-
-@dataclass
-class StepTimings:
-    """Timing breakdown for pipeline steps."""
-
-    embedding_ms: int = 0
-    retrieval_ms: int = 0
-    expansion_ms: int = 0
-    llm_ms: int = 0
-
-
-@dataclass
-class RetrievalMetadata:
-    """Performance metadata for retrieval operations.
-
-    Attributes:
-        latency_ms: Total retrieval time in milliseconds
-        embedding_ms: Time spent generating query embedding
-        retrieval_ms: Time spent in hybrid retrieval
-        expansion_ms: Time spent in context expansion
-        initial_count: Chunks before expansion
-        expanded_count: Chunks after expansion
-    """
-
-    latency_ms: int
-    embedding_ms: int
-    retrieval_ms: int
-    expansion_ms: int
-    initial_count: int
-    expanded_count: int
-
-
-@dataclass
-class RetrievalResult:
-    """Result from retrieval-only pipeline (no LLM).
-
-    Attributes:
-        chunks: List of retrieved ChunkData with scores
-        metadata: Performance metadata
-    """
-
-    chunks: list[tuple[ChunkData, float]]
-    metadata: RetrievalMetadata
 
 
 class QueryOrchestrator:
@@ -193,44 +118,27 @@ class QueryOrchestrator:
             RetrievalError: If embedding generation or retrieval fails
         """
         start_time = time.perf_counter()
-        timings = StepTimings()
 
         logger.info("retrieval_only_started", query_text=query_text[:100])
 
-        # Step 1: Embedding generation
-        step_start = time.perf_counter()
-        query_embedding = await self._generate_embedding(query_text)
-        timings.embedding_ms = int((time.perf_counter() - step_start) * 1000)
+        # Execute common retrieval pipeline
+        pipeline_result = await self._execute_retrieval_pipeline(query_text, top_k)
 
-        # Step 2: Hybrid retrieval
-        step_start = time.perf_counter()
-        chunks_with_scores = await self.hybrid_retrieval.retrieve(
-            query_embedding=query_embedding,
-            query_text=query_text,
-            top_k=top_k,
+        # Reconstruct results with expanded chunks (assign 0.0 score to expanded)
+        initial_count = len(pipeline_result.initial_chunks_with_scores)
+        result_chunks: list[tuple[ChunkData, float]] = list(
+            pipeline_result.initial_chunks_with_scores
         )
-        timings.retrieval_ms = int((time.perf_counter() - step_start) * 1000)
-        initial_count = len(chunks_with_scores)
-
-        # Step 3: Context expansion
-        step_start = time.perf_counter()
-        chunk_data_list = [chunk for chunk, score in chunks_with_scores]
-        expanded_chunks = await self.context_expander.expand_context(chunk_data_list)
-        timings.expansion_ms = int((time.perf_counter() - step_start) * 1000)
-
-        # Reconstruct results with expanded chunks
-        # Keep original scores for initial chunks, assign 0.0 for expanded chunks
-        result_chunks: list[tuple[ChunkData, float]] = list(chunks_with_scores)
-        for expanded_chunk in expanded_chunks[initial_count:]:
+        for expanded_chunk in pipeline_result.expanded_chunks[initial_count:]:
             result_chunks.append((expanded_chunk, 0.0))
 
         # Build metadata
         total_latency = int((time.perf_counter() - start_time) * 1000)
         metadata = RetrievalMetadata(
             latency_ms=total_latency,
-            embedding_ms=timings.embedding_ms,
-            retrieval_ms=timings.retrieval_ms,
-            expansion_ms=timings.expansion_ms,
+            embedding_ms=pipeline_result.timings.embedding_ms,
+            retrieval_ms=pipeline_result.timings.retrieval_ms,
+            expansion_ms=pipeline_result.timings.expansion_ms,
             initial_count=initial_count,
             expanded_count=len(result_chunks),
         )
@@ -264,7 +172,6 @@ class QueryOrchestrator:
 
         query_id = str(uuid.uuid4())
         start_time = time.perf_counter()
-        timings = StepTimings()
 
         logger.info(
             "query_started",
@@ -275,57 +182,32 @@ class QueryOrchestrator:
 
         try:
             async with asyncio.timeout(self.timeout_seconds):
-                # Step 1: Embedding generation
-                step_start = time.perf_counter()
-                query_embedding = await self._generate_embedding(request.query_text)
-                timings.embedding_ms = int((time.perf_counter() - step_start) * 1000)
-                logger.info(
-                    "embedding_generated",
-                    query_id=query_id,
-                    latency_ms=timings.embedding_ms,
-                )
+                # Steps 1-3: Execute common retrieval pipeline
+                pipeline_result = await self._execute_retrieval_pipeline(request.query_text)
 
-                # Step 2: Hybrid retrieval (always executes)
-                step_start = time.perf_counter()
-                chunks = await self.hybrid_retrieval.retrieve(
-                    query_embedding=query_embedding,
-                    query_text=request.query_text,
-                )
-                timings.retrieval_ms = int((time.perf_counter() - step_start) * 1000)
                 logger.info(
-                    "retrieval_completed",
+                    "retrieval_pipeline_completed",
                     query_id=query_id,
-                    chunks_retrieved=len(chunks),
-                    latency_ms=timings.retrieval_ms,
-                )
-
-                # Step 3: Context expansion
-                step_start = time.perf_counter()
-                # Extract ChunkData from tuples
-                chunk_data_list = [chunk for chunk, score in chunks]
-                expanded_chunks = await self.context_expander.expand_context(chunk_data_list)
-                timings.expansion_ms = int((time.perf_counter() - step_start) * 1000)
-                logger.info(
-                    "context_expanded",
-                    query_id=query_id,
-                    initial_chunks=len(chunk_data_list),
-                    expanded_chunks=len(expanded_chunks),
-                    latency_ms=timings.expansion_ms,
+                    chunks_retrieved=len(pipeline_result.initial_chunks_with_scores),
+                    chunks_expanded=len(pipeline_result.expanded_chunks),
+                    embedding_ms=pipeline_result.timings.embedding_ms,
+                    retrieval_ms=pipeline_result.timings.retrieval_ms,
+                    expansion_ms=pipeline_result.timings.expansion_ms,
                 )
 
                 # Step 4: LLM structured generation (includes language detection)
                 step_start = time.perf_counter()
                 llm_response = await self._generate_llm_response(
                     query_text=request.query_text,
-                    chunks=expanded_chunks,
+                    chunks=pipeline_result.expanded_chunks,
                 )
-                timings.llm_ms = int((time.perf_counter() - step_start) * 1000)
+                pipeline_result.timings.llm_ms = int((time.perf_counter() - step_start) * 1000)
                 logger.info(
                     "llm_response_generated",
                     query_id=query_id,
                     smalltalk=llm_response.smalltalk,
                     detected_language=llm_response.language,
-                    latency_ms=timings.llm_ms,
+                    latency_ms=pipeline_result.timings.llm_ms,
                 )
 
                 # Step 5: Build QueryResponse
@@ -339,12 +221,12 @@ class QueryOrchestrator:
                     language=llm_response.language,
                     metadata={
                         "latency_ms": total_latency,
-                        "embedding_ms": timings.embedding_ms,
-                        "retrieval_ms": timings.retrieval_ms,
-                        "expansion_ms": timings.expansion_ms,
-                        "llm_ms": timings.llm_ms,
-                        "chunks_retrieved": len(chunks),
-                        "chunks_expanded": len(expanded_chunks),
+                        "embedding_ms": pipeline_result.timings.embedding_ms,
+                        "retrieval_ms": pipeline_result.timings.retrieval_ms,
+                        "expansion_ms": pipeline_result.timings.expansion_ms,
+                        "llm_ms": pipeline_result.timings.llm_ms,
+                        "chunks_retrieved": len(pipeline_result.initial_chunks_with_scores),
+                        "chunks_expanded": len(pipeline_result.expanded_chunks),
                     },
                 )
 
@@ -442,6 +324,51 @@ class QueryOrchestrator:
             raise RetrievalError("Failed to generate query embedding")
 
         return embeddings[0]
+
+    async def _execute_retrieval_pipeline(
+        self,
+        query_text: str,
+        top_k: int | None = None,
+    ) -> RetrievalPipelineResult:
+        """Execute embedding, retrieval, and expansion steps.
+
+        Args:
+            query_text: The query text to search for
+            top_k: Number of results to retrieve (defaults to hybrid_retrieval.top_k)
+
+        Returns:
+            RetrievalPipelineResult with chunks and timings
+
+        Raises:
+            RetrievalError: If embedding generation or retrieval fails
+        """
+        timings = StepTimings()
+
+        # Step 1: Embedding generation
+        step_start = time.perf_counter()
+        query_embedding = await self._generate_embedding(query_text)
+        timings.embedding_ms = int((time.perf_counter() - step_start) * 1000)
+
+        # Step 2: Hybrid retrieval
+        step_start = time.perf_counter()
+        chunks_with_scores = await self.hybrid_retrieval.retrieve(
+            query_embedding=query_embedding,
+            query_text=query_text,
+            top_k=top_k,
+        )
+        timings.retrieval_ms = int((time.perf_counter() - step_start) * 1000)
+
+        # Step 3: Context expansion
+        step_start = time.perf_counter()
+        chunk_data_list = [chunk for chunk, score in chunks_with_scores]
+        expanded_chunks = await self.context_expander.expand_context(chunk_data_list)
+        timings.expansion_ms = int((time.perf_counter() - step_start) * 1000)
+
+        return RetrievalPipelineResult(
+            expanded_chunks=expanded_chunks,
+            initial_chunks_with_scores=chunks_with_scores,
+            timings=timings,
+        )
 
     async def _generate_llm_response(
         self,

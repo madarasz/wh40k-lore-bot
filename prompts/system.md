@@ -18,7 +18,7 @@ You must respond in valid JSON with this exact structure:
 ## Language Detection
 - Detect the language of the user's question
 - If Hungarian, set language="HU" and respond in Hungarian
-- For all other languages, set language="EN" and respond in English
+- For all other languages or if uncertain, set language="EN" and respond in English
 
 ## Smalltalk Detection
 Set smalltalk=true for:

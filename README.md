@@ -124,7 +124,7 @@ poetry run pytest -m e2e
 
 ```bash
 # run ALL (e2e, integration and long included) test
-poetry run pytest -m ""
+poetry run pytest -o addopts=""
 ```
 
 ### Code Quality
